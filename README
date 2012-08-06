@@ -1,4 +1,3 @@
-<h1>
-An IRC server written in pure python using nothing but the stdlib.<br />
+An IRC server written in pure python using nothing but the stdlib.
+
 Please consult the --help option and the beginning of the source for more in-depth information.
-</h1>
