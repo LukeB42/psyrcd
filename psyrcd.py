@@ -28,7 +28,6 @@
 # OTHER DEALINGS IN THE SOFTWARE.
  
 # Todo:
-#   - Bind SRV_* into a dictionary
 #   - Implement all modes.
 #   - Add a K:Line system
 #   - Add a /helpop system for mode definitions. read command help from self.commandname.__doc__
@@ -264,12 +263,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #        'b':"Bot.",
 #        'C':"Connection Notices. User receives notices for each connecting and disconnecting client.",
 #        'd':"Deaf. User does not recieve channel messages.",
-#        'H':"Hide ircop line in /whois.",
+        'H':"Hide ircop line in /whois.",
 #        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
         'O':"IRC Operator.",
 #        'P':"Protected. Blocks users from kicking, killing, deoping or devoicing the user.",
 #        'p':"Hidden Channels. Hides the channels line in the users /whois",
-#        'Q':"Kick Block. Cannot be /kicked from channels.",
+        'Q':"Kick Block. Cannot be /kicked from channels.",
 #        'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
 #        'W':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
         'x':"Masked hostname. Hides the users hostname or IP address from other users."
@@ -666,11 +665,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 else:
                     raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s :%s You are not a channel operator.' % (channel.name,channel.name))
             else: # User modes.
-                if self.nick == target or self.oper:
+                if (self.nick == target) or self.oper:
                     modeline=''
                     if mode.startswith('+'):
                         for i in mode[1:]:
                             if i in self.supported_modes.keys() and i not in self.modes:
+                                if i.isupper() and not self.oper: continue
                                 self.modes.append(i)
                                 modeline=modeline+i
                         if len(modeline) > 0:
@@ -679,6 +679,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     elif mode.startswith('-'):
                         for i in mode[1:]:
                             if i in self.modes:
+                                if i.isupper() and not self.oper: continue
                                 self.modes.remove(i)
                                 modeline=modeline+i
                         if len(modeline) > 0:
@@ -764,7 +765,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.broadcast(self.nick,response)
 
             # Oper info
-            if user.oper:
+            if user.oper and 'H' not in user.modes:
                 if 'A' in user.modes:
                     response = ':%s %s %s %s :%s is a server admin.' % (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick, user.nick)
                     self.broadcast(self.nick,response)
@@ -871,14 +872,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
         message=None
         channel, target= params.split(' ',1)
         target, message = target.split(' :',1)
+
         channel = self.server.channels.get(channel)
         if not channel:
             return(':%s NOTICE %s :No such channel.' % (SRV_DOMAIN, self.nick))
         if not self.oper and self.nick not in channel.ops['o']:
             return(':%s NOTICE %s :You are not a channel operator.' % (SRV_DOMAIN, channel.name))
+
         target = self.server.clients.get(target)
         if not target:
             return(':%s NOTICE @%s :No such nick.' % (SRV_DOMAIN, channel.name))
+        if 'Q' in target.modes:
+            return(':%s NOTICE @%s :Cannot kick +Q user %s.' % (SRV_DOMAIN, channel.name, target.nick))
+
         if message:
             response = ':%s KICK %s %s :%s' % (self.client_ident(True), channel.name, target.nick, message)
         else:
@@ -1181,5 +1187,5 @@ if __name__ == "__main__":
         logging.error(repr(e))
         sys.exit(-2)
     except KeyboardInterrupt:
-        logging.info('C^ caught. Shutting down.')
+        logging.info('Goodbye. I love you.')
         raise SystemExit
