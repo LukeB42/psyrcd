@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python 
 # *-* coding: UTF-8 *-*
 
-# Psyrcd the psybernetics IRC server.
+# Psyrcd the Psybernetics IRC server.
 # Based on hircd.py. Modifications have been added for robustness and privacy.
-# Gratitude to Ferry Boender for writing the core IRCClient.handle method
+# Gratitude to Ferry Boender for starting this off
 # http://www.electricmonk.nl/log/2009/09/14/hircd-minimal-irc-server-in-python/
  
 # Permission is hereby granted, free of charge, to any person
@@ -26,52 +26,73 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
+
+# For the best results please use PyPy.
  
 # Todo:
-#   - Implement all modes.
+#   - Fix the [SSL] disconnect traceback.
+#   - Make +e/b conform to the supported_modes{} principle
+#   - Create a comparison function for cmode +e/b
+#   - Implement MAX_* et al
 #   - Add a K:Line system
-#   - Add a /helpop system for mode definitions. read command help from self.commandname.__doc__
-#   - Make totally multiplatform between unices and windows
+#   - Implement ALL modes.
+#   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
+#   - Unicode all the things.
+#   - Give scripts more stateful information. IE render(self,file,params)
+#   - Alter IRCClient.handle() to first try IRCOperator.handle_* if self.oper. could redefine PRIVMSG for cmode:X
+#   - Determine the most elegant way of doing simultanious 6667/6697 operation. (fire off ssl bind() in background thread)
+#   - Grep and fix TODO comments.
+#   - Add the missing WHOIS response lines.
 # Known Errors:
-#   - The servers startup-time is provided on connect. The "randomly generated" oper password is based on the same timestamp.
+#   - Some commands (/chghost, possibly /kick et al) treat nicks as case-sensitive. (always iterate and compare against nick.lower())
+#   - Doesn't daemonize on Windows.
 #   - Use $ ./psyrcd --restart to rehash
 #   - starting server when already started doesn't work properly. PID file is not changed, no error messsage is displayed.
 #   - KeyError(<IRCClient nick!user@addr) (Happens with mirc on nick collisions)
 #   - After the server has closed a client connection we will sometimes receive a non-fatal traceback upon writing to the nonexistant socket.
 # Server linking:
-#   - Add an operserv command to generate server-link keys at runtime, add them to a dictionary.
-#   - IRCClient.server should be set to True or False. Authenticate on connect if connecting as a server.
-#   - IRCClient.handle() should distinguish clients from servers, letting clients access handle_client_* and servers handle_server_*
+#   - Determine the most elegant way of performing pathfinding on a branched network. (Requires state on who has what [CONSPIRACY TO MAKE PSYRCD FAT])
+#   - Connect through the front door and negotiate as a server, hand connection off to dedicated class.
+#   - /operserv connect server:port key; generate key at runtime.
+#   - Hook .broadcast(). Higher-level container metaclass/decorator. Serialize/unserialize objects over the wire (why tho?)
 # Pipe dreams:
-#   - An IRC bot class which can conjoin external channels on different servers to local channels.
+#   - Script threading, long-lived scripts and scheduling.
+#   - Script designation based on opership.
+#   - An IRC bot which can conjoin external channels on different servers to local channels.
 #   - LOCK: Pickle a user or channel object to sqlite3 for later reinsertion. This could form the basis of *serv services.
-#   - Logging to sqlite3
+#   - NickServ and ChanServ (nick registration through smtplib..) [CONSPIRACY TO MAKE PSYRCD FAT]
+#   - Logging to sqlite3 (imagine an /operserv replay command for replaying conversations back into a channel)
+#   - IPC to external applications [CONSPIRACY TO MAKE PSYRCD FAT]
 
 import sys, os, re, time, optparse, logging, hashlib, SocketServer, socket, select
 
+try:
+    from OpenSSL import SSL
+except ImportError:
+    SSL = None
+
+try:
+    from mako.lookup import TemplateLookup
+except ImportError:
+    TemplateLookup = None
+
 NET_NAME        = "psyrcd-devel"
-SRV_VERSION     = "psyrcd-0.09-nonexistent"
-SRV_DOMAIN      = "irc.psybernetics.org.uk"
-SRV_DESCRIPTION = "I fought the lol and. The lol won."
+SRV_VERSION     = "psyrcd-0.13"
+SRV_DOMAIN      = "irc.domain.tld"
+SRV_DESCRIPTION = "Changeme."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
 SRV_CREATED     = time.asctime()
 
 MAX_CLIENTS   = 300     # User connections to be permitted before we start denying new connections.
 MAX_IDLE      = 300     # Time in seconds a user may be caught being idle for.
-MAX_NICKLEN   = 12      # Characters per available nickname
+MAX_NICKLEN   = 12      # Characters per available nickname.
 MAX_CHANNELS  = 200     # Channels per server on the network.
 MAX_TOPICLEN  = 512     # Characters per channel topic.
 MAX_TICKS     = [0,15]  # select()s through active connections before we start pruning for ping timeouts
 
-OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one in at runtime:
+OPER_USERNAME = os.environ['USER']
+OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
                         # openssl rand -base64 32 | ./psyrcd -flVa0.0.0.0
-
-if OPER_PASSWORD != False:
-    try:
-        OPER_USERNAME = os.environ['USERNAME']
-    except KeyError:
-        print "You must set the environmental variable USERNAME.\neg: export USERNAME='foo'"
-        raise SystemExit
 
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
@@ -96,7 +117,11 @@ RPL_TOPIC             = '332'
 RPL_TOPICWHOTIME      = '333'
 RPL_WHOISBOT          = '335'
 RPL_INVITING          = '341'
+RPL_EXCEPTLIST        = '348'
+RPL_ENDOFEXCEPTLIST   = '349'
 RPL_WHOREPLY          = '352'
+RPL_BANLIST           = '367'
+RPL_ENDOFBANLIST      = '368'
 RPL_HOSTHIDDEN        = '396'
 ERR_NOSUCHNICK        = '401'
 ERR_NOSUCHCHANNEL     = '403'
@@ -107,7 +132,9 @@ ERR_NICKNAMEINUSE     = '433'
 ERR_NOTIMPLEMENTED    = '449'
 ERR_NEEDMOREPARAMS    = '461'
 ERR_INVITEONLYCHAN    = '473'
+ERR_BANNEDFROMCHAN    = '474'
 ERR_CHANOPPRIVSNEEDED = '482'
+ERR_VOICENEEDED       = '489'
 
 class IRCError(Exception):
     """
@@ -131,14 +158,14 @@ class IRCChannel(object):
         self.topic = topic
         self.clients = set()
         self.supported_modes = {  # Uppercase modes can only be set and removed by opers.
-#        'A':"Administrators only.",
-#        'h':"Hide channel operators.",
+        'A':"Administrators only.",
+        'h':"Hide channel operators.",
         'i':"Invite only.",
-#        'm':"Muted. Only +v and +o users may speak.",
+        'm':"Muted. Only +v and +o users may speak.",
         'n':"No messages allowed from users who are not in the channel.",
-#        'O':"Operators only.",
+        'O':"Operators only.",
         'p':"Private. Hides channel from /whois.",
-#        'R':"[redacted] Redacts usernames and replaces them with the first word in this line.",
+        'R':"[redacted] Redacts usernames and replaces them with the first word in this line.", # supported_modes['R'].split()[0]
         's':"Secret. Hides channel from /list.",
         't':"Only ops may set the channel topic.",
 #        'X':"Executable. Opers can execute code serverside from within the channel"
@@ -146,6 +173,8 @@ class IRCChannel(object):
         self.modes = ['n','t']
         self.ops = {'o':[],'v':[]}
         self.invites = []
+        self.bans = [] # '$mask_regex $setter_nick $unix_time' -> i.split()[0]
+        self.excepts = []
 
 class IRCOperator(object):
     """
@@ -153,7 +182,7 @@ class IRCOperator(object):
     """
     def __init__(self,client):
         self.client = client    # So we can access everything relavent to this oper
-        self.vhost = "ServerOp" # For shits n squirrels
+        self.vhost = "network.admin"
         self.modes = ['A','C','P','Q','S','W']
         self.passwd = None
 
@@ -179,27 +208,33 @@ class IRCOperator(object):
 
     def handle_seval(self, params):
         """
-        OH FUCK THIS IS A BAD IDEA
+        BAD IDEA
         """
         message = ': %s' % (eval(params))
         return(message)
 
     def handle_dump(self, params):
         """
-        Dump internal server information for debugging purposes.
+        Dump internal server info for debugging.
         """
         # TODO: Different arguments for different stats.
-        # TODO: Print channel modes, print to connection.
-        print "Clients:", self.client.server.clients
+        # TODO: Show modes and invites, excepts, bans.
+        response = ':%s NOTICE %s :Clients: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.clients)
+        self.client.broadcast(self.client.nick,response)
         for client in self.client.server.clients.values():
-            print " ", client
+            response = ':%s NOTICE %s :  %s' % (SRV_DOMAIN, self.client.nick, client)
+            self.client.broadcast(self.client.nick,response)
             for channel in client.channels.values():
-                print "     ", channel.name
-        print "Channels:", self.client.server.channels
+                response = ':%s NOTICE %s :    %s' % (SRV_DOMAIN, self.client.nick, channel.name)
+                self.client.broadcast(self.client.nick,response)
+        response = ':%s NOTICE %s :Channels: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.channels)
+        self.client.broadcast(self.client.nick,response)
         for channel in self.client.server.channels.values():
-            print " ", channel.name, channel
+            response = ':%s NOTICE %s :  %s %s' % (SRV_DOMAIN, self.client.nick, channel.name, channel)
+            self.client.broadcast(self.client.nick,response)
             for client in channel.clients:
-                print "     ", client.nick, client
+                response = ':%s NOTICE %s :    %s %s' % (SRV_DOMAIN, self.client.nick, client.nick, client)
+                self.client.broadcast(self.client.nick,response)
 
     def handle_addoper(self,params):
         """
@@ -217,20 +252,14 @@ class IRCOperator(object):
         response = ':%s NOTICE %s :Created an oper account for %s.' % (SRV_DOMAIN, self.client.nick, user.nick)
         self.client.broadcast(self.client.nick,response)
 
-    def handle_vhost(self,params):
-        pass
-
-    def handle_rehash(self,params):
-        pass
-
     def handle_flood(self, params):
         """
         Flood a channel with a given text file.
         """
         channel, file = params.split(' ', 1)
         if os.path.exists(file):
-            FD = open(file)
-            for line in FD:
+            fd = open(file)
+            for line in fd:
                 message = ':%s PRIVMSG %s %s' % (self.client.client_ident(), channel, line.strip('\n'))
                 self.client.broadcast(channel,message)
         else:
@@ -246,7 +275,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
     """
     def __init__(self, request, client_address, server):
         self.connected_at = str(time.time())[:10] 
-        self.last_activity = None                 # Subtract this from time.time() to determine idle time.
+        self.last_activity = 0                    # Subtract this from time.time() to determine idle time.
         self.user = None                          # The bit before the @
         self.host = client_address                # Client's hostname / ip.
         self.rhost = lookup(self.host[0])         # This users rdns. May return None.
@@ -257,7 +286,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         self.send_queue = []                      # Messages to send to client (strings)
         self.channels = {}                        # Channels the client is in
         self.modes = ['x']                        # Usermodes set on the client
-        self.oper = None                          # Assign to IRCOperator object if user opers up
+        self.oper = None                          # Assign an IRCOperator object if user opers up
         self.supported_modes = {                  # Uppercase modes are oper-only
         'A':"IRC Administrator.",
 #        'b':"Bot.",
@@ -265,17 +294,22 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #        'd':"Deaf. User does not recieve channel messages.",
         'H':"Hide ircop line in /whois.",
 #        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
+#        'N':"Network Administrator.",
         'O':"IRC Operator.",
 #        'P':"Protected. Blocks users from kicking, killing, deoping or devoicing the user.",
 #        'p':"Hidden Channels. Hides the channels line in the users /whois",
         'Q':"Kick Block. Cannot be /kicked from channels.",
 #        'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
-#        'W':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
+#        'W':"Wallops. Recieves connection, disconnection and traceback notices regarding other users.",
+#        'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
         'x':"Masked hostname. Hides the users hostname or IP address from other users."
         }
 
         SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
-
+        if options.ssl_key and options.ssl_cert:
+            self.connection = self.request
+            self.rfile = socket._fileobject(self.request, "rb", self.rbufsize)
+            self.wfile = socket._fileobject(self.request, "wb", self.wbufsize)
     def handle(self):
         """
         The nucleus of the IRCd.
@@ -318,21 +352,32 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             else:
                                 command = line
                                 params = ''
-                            handler = getattr(self, 'handle_%s' % (command.lower()), None)
+                            if os.path.isfile(scripts_dir + command.lower()) and TemplateLookup:
+                                logging.info("%s executing %s script" % (self.nick, command.lower()))
+                                # The handler variable must contain something in order to not raise ERR_UNKNOWNCOMMAND
+                                handler = render(command.lower(),params) 
+                                response = ""
+                                for line in handler.split('\n'):
+                                    response = response + ":%s NOTICE %s :%s\r\n" % (SRV_DOMAIN, self.nick, line)
+                            else:
+                                handler = getattr(self, 'handle_%s' % (command.lower()), None)
                             if not handler:
                                 logging.info('No handler for command: %s. Full line: %s' % (command, line))
                                 raise IRCError(ERR_UNKNOWNCOMMAND, '%s :Unknown command' % (command))
-                            response = handler(params)
+                            if not response:
+                                response = handler(params)
                         except AttributeError, e:
-                            raise e
+#                           self.broadcast('umode:A', self.nick e)
+#                           self.broadcast('umode:O', self.nick e)
                             logging.error('%s' % (e))
                         except IRCError, e:
                             response = ':%s %s %s' % (self.server.servername, e.code, e.value)
                             logging.error('%s' % (response))
                         except Exception, e:
+#                           self.broadcast('umode:A', self.nick e)
+#                           self.broadcast('umode:O', self.nick e)
                             response = ':%s ERROR %s' % (self.server.servername, repr(e))
                             logging.error('%s' % (response))
-                            raise
                         if response:
                             logging.debug('to %s: %s' % (self.client_ident(), response))
                             self.request.send(response + '\r\n')
@@ -396,6 +441,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 if not channel.name in self.channels:
                     # The user isn't in the channel.
                     raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
+                if 'm' in channel.modes:
+                    if self.nick not in channel.ops['o'] and self.nick not in channel.ops['v']:
+                        raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' % (channel.name, channel.name))
+                if 'R' in channel.modes:
+                    message = ':%s PRIVMSG %s %s' % (channel.supported_modes['R'].split()[0], target, msg)
                 for client in channel.clients:
                     if client != self:
                         self.broadcast(client.nick,message)
@@ -470,6 +520,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     self.server.opers.pop(prev_nick)
                     self.server.opers[self.nick] = self.oper
 
+                # TODO: Carry channel invites over
+
                 # Send a notification of the nick change to all the clients in
                 # the channels the client is in.
                 for channel in self.channels.values():
@@ -490,8 +542,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
         user, mode, unused, realname = params.split(' ', 3)
         self.user = user
         self.realname = realname
-        if len(self.server.clients) >= MAX_CLIENTS:
-            self.send_queue.append(': MAX_CLIENTS exceeded.')
+        if len(self.server.clients) >= MAX_CLIENTS:           # This should be moved to a different section as connections cannot
+            self.send_queue.append(': MAX_CLIENTS exceeded.') # be relied upon to be IRC clients.
             self.request.close()
         return('')
 
@@ -554,7 +606,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if not re.match('^#([a-zA-Z0-9_])+$', r_channel_name):
                 raise IRCError(ERR_NOSUCHCHANNEL, '%s :No such channel' % (r_channel_name))
 
-            # Add user to the channel (create new channel if not exists)
+            # Check we're not already there and grab ourselves a channel object
             if r_channel_name not in self.server.channels.keys():
                 new_channel = True
                 
@@ -564,16 +616,32 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if 'i' in channel.modes and self.nick not in channel.invites:
                 raise IRCError(ERR_INVITEONLYCHAN, '%s :%s' % (channel.name,channel.name))
 
-            # Add ourself to the channel and the channel to user's channel list
+            # Check the channel isn't +OA
+            if ('O' in channel.modes and not self.oper) or ('A' in channel.modes and not self.oper):
+                raise IRCError(500, '%s :Must be an IRC operator' % channel.name)
+
+            # Respect channel bans and exceptions
+            # TODO: Ordinary syntax can throw a re error, instead try for bans: if match(entry,ident)
+            if not self.oper:
+                for b in channel.bans:
+                    for e in channel.excepts:
+                        if re.match(e.split()[0],self.client_ident(True)): break
+                    else:
+                        if re.match(b.split()[0], self.client_ident(True)):
+                            raise IRCError(ERR_BANNEDFROMCHAN, '%s :Cannot join channel (+b)' % channel.name)
+                        continue  # executed if the loop ended normally (no break)
+                    break  # executed if 'continue' was skipped (break)
+
+            # Add ourself to the channel and the channel to users channel list
             channel.clients.add(self)
             self.channels[channel.name] = channel
 
             # Send join message to everybody in the channel, including yourself
             response = ':%s JOIN :%s' % (self.client_ident(masking=True), r_channel_name)
-            if 'I' not in self.modes:
-                self.broadcast(channel.name,response)
-            else:
+            if ('I' in self.modes) or ('R' in channel.modes):
                 self.broadcast(self.nick,response)
+            else:
+                self.broadcast(channel.name,response)
 
             # Send the topic
             if channel.topic != '':
@@ -590,15 +658,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
         if params in self.server.channels.keys():
             channel = self.server.channels.get(params)
             if channel.name in self.channels:
-                nicks = [client.nick for client in channel.clients]
-                o = [i for i in channel.ops['o'] if i in nicks]
-                v = [i for i in channel.ops['v'] if i in nicks]
-                for i in o: nicks.remove(i)
-                for i in v: nicks.remove(i)
-                for i in o: o.remove(i);o.append('@'+i)
-                for i in v: v.remove(i);v.append('+'+i)
-                for i in o: nicks.append(i)
-                for i in v: nicks.rappend(i)
+                if 'R' in channel.modes:
+                    nicks = [channel.supported_modes['R'].split()[0]]
+                else:
+                    nicks = [client.nick for client in channel.clients]
+                    if 'h' not in channel.modes:
+                        o = [i for i in channel.ops['o'] if i in nicks]
+                        v = [i for i in channel.ops['v'] if i in nicks]
+                        for i in o: nicks.remove(i)
+                        for i in v: nicks.remove(i)
+                        for i in o: o.remove(i);o.append('@'+i)
+                        for i in v: v.remove(i);v.append('+'+i)
+                        for i in o: nicks.append(i)
+                        for i in v: nicks.rappend(i)
                 response = ':%s 353 %s = %s :%s' % (self.server.servername, self.nick, channel.name, ' '.join(nicks))
                 self.broadcast(self.nick,response)
                 response = ':%s 366 %s %s :End of /NAMES list' % (self.server.servername, self.nick, channel.name)
@@ -639,7 +711,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 message = ":%s MODE %s -%s" % (self.client_ident(True), target, modeline)
                                 self.broadcast(target,message)
                                 return()
-                    else: # A mode with arguments. Making someone an op/Setting a channel key/Banning a host.
+                    else: # A mode with arguments. Making someone an op/Bans and Excepts. TODO: +k, +l
                         args = argument.split(' ')
                         if mode.startswith('+'):
                             for i in mode[1:]:
@@ -647,8 +719,16 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                     if i == 'o' or i == 'v':
                                         if n not in channel.ops[i]:
                                             channel.ops[i].append(n)
-                                            modeline=modeline+i
+                                            modeline+=i
                                             args.remove(n)
+                                    elif i == 'b':
+                                        n = re_to_irc(n)
+                                        channel.bans.append('%s %s %s' % (n, self.nick, str(time.time())[:10]))
+                                        modeline+=i
+                                    elif i == 'e':
+                                        n = re_to_irc(n)
+                                        channel.excepts.append('%s %s %s' % (n, self.nick, str(time.time())[:10]))
+                                        modeline+=i
                             message = ":%s MODE %s +%s %s" % (self.client_ident(True), target, modeline, argument)
                             self.broadcast(target,message)
                             return()
@@ -658,12 +738,40 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                     if i == 'o' or i == 'v':
                                         if n in channel.ops[i]:
                                             channel.ops[i].remove(n)
-                                            modeline=modeline+i
+                                            modeline+=i
                                             args.remove(n)
+                                    elif i == 'b':
+                                        for entry in channel.bans:
+                                            if entry.split()[0] == n:
+                                                channel.bans.remove(entry)
+                                                modeline+=i
+                                                args.remove(n)
+                                    elif i == 'e':
+                                        for entry in channel.excepts:
+                                            if entry.split()[0] == n:
+                                                channel.excepts.remove(entry)
+                                                modeline+=i
+                                                args.remove(n)
                             message = ":%s MODE %s -%s %s" % (self.client_ident(True), target, modeline, argument)
-                            self.broadcast(target,message)
+                            self.broadcast(target,message)                
                 else:
                     raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s :%s You are not a channel operator.' % (channel.name,channel.name))
+
+                # Retrieving the banlist or the exceptlist:
+                if (mode == 'b' or mode == '+b') and not argument:
+                    for entry in channel.bans:
+                        banline = ":%s %s %s %s %s" % (SRV_DOMAIN, RPL_BANLIST, self.nick, channel.name, entry)
+                        self.broadcast(self.nick,banline)
+                    response = ":%s %s %s %s :End of Channel Ban List" % (SRV_DOMAIN, RPL_ENDOFBANLIST, self.nick, channel.name)
+                    self.broadcast(self.nick,response)
+
+                if (mode == 'e' or mode == '+e') and not argument:
+                    for entry in channel.excepts:
+                        exceptline = ":%s %s %s %s %s" % (SRV_DOMAIN, RPL_EXCEPTLIST, self.nick, channel.name, entry)
+                        self.broadcast(self.nick,exceptline)
+                    response = ":%s %s %s %s :End of Channel Exception List" % (SRV_DOMAIN, RPL_ENDOFEXCEPTLIST, self.nick, channel.name)
+                    self.broadcast(self.nick,response)
+
             else: # User modes.
                 if (self.nick == target) or self.oper:
                     modeline=''
@@ -713,14 +821,15 @@ class IRCClient(SocketServer.BaseRequestHandler):
         channel = self.server.channels.get(channel)
         if channel and target in self.server.clients.keys():
             if self.nick in channel.ops['o'] or self.oper:
-                # Add the invite
                 channel.invites.append(target)
-                # Confirm to the inviter
+
                 response = ':%s %s %s %s %s' % (SRV_DOMAIN, RPL_INVITING, self.nick, target, channel.name)
                 self.broadcast(self.nick,response)
+
                 # Tell the channel
                 response = ':%s NOTICE @%s :%s invited %s into the channel.' % (SRV_DOMAIN, channel.name, self.nick, target)
                 self.broadcast(channel.name,response)
+
                 # Tell the invitee
                 response = ':%s INVITE %s :%s' % (self.client_ident(True), target, channel.name)
                 self.broadcast(target,response)
@@ -848,8 +957,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if pchannel.strip() in self.channels:
                 # Send message to all clients in all channels user is in, and remove the user from the channels.
                 channel = self.server.channels.get(pchannel.strip())
-                response = ':%s PART :%s' % (self.client_ident(True), pchannel)
-                self.broadcast(channel.name,response)
+                if 'R' not in channel.modes:
+                    response = ':%s PART :%s' % (self.client_ident(True), pchannel)
+                    self.broadcast(channel.name,response)
                 self.channels.pop(pchannel)
                 channel.clients.remove(self)
                 if len(channel.clients) < 1:
@@ -921,12 +1031,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     oper = self.server.opers.setdefault(self.nick, IRCOperator(self))
                 else:
                     oper = self.server.opers.get(opername)
-                    if not oper: return(':%s NOTICE %s :No O:Lines for your host.' % (SRV_DOMAIN, self.nick))
-                    if oper.password != password: return(':%s NOTICE %s :No O:Lines for your host.' % (SRV_DOMAIN, self.nick))
+                    if (not oper) or (oper.password != password): return(':%s NOTICE %s :No O:Lines for your host.' % (SRV_DOMAIN, self.nick))
+                    #if oper.password != password: return(':%s NOTICE %s :No O:Lines for your host.' % (SRV_DOMAIN, self.nick))
                 self.vhost = oper.vhost
                 self.oper = oper
                 for i in oper.modes: self.modes.append(i)
-                return(':%s NOTICE %s :You are now logged in as %s.' % (SRV_DOMAIN,self.nick,opername))
+                return(':%s NOTICE %s :Auth successful for %s.' % (SRV_DOMAIN,self.nick,opername))
             else:
                 return(': Incorrect usage.')
 
@@ -959,19 +1069,99 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if client:
                 client.finish(response=':%s QUIT :Killed by %s: %s' % (client.client_ident(True), self.nick,reason))
 
+    def handle_helpop(self, params):
+        """
+        The helpop system provides help on commands and modes.
+        Use "/helpop command commandname" for documentation on a given command.
+        Use "/helpop cmode modename" for documentation on a given channel mode.
+        Use "/helpop umode modename" for documentation on a given user mode.
+        """
+        if not ' ' in params:
+            docs = self.handle_helpop.__doc__.split('\n')
+            doc = ''
+            for line in docs:
+                i = 0
+                for character in line:
+                    if character == ' ':
+                        i += 1
+                    else:
+                        doc += line[i:] + '\n'
+                        break
+            message = ": %s" % doc
+            self.broadcast(self.nick, message)
+            if self.oper:
+                message = ': Use "/helpop ocommand commandname" for documentation on a given operserv command.'
+                self.broadcast(self.nick, message)
+        else:
+            (section, topic) = params.split(' ',1)
+            if section == "umode":
+                if topic in self.supported_modes.keys():
+                    message = ": %s help on user mode %s" % (SRV_DOMAIN, topic)
+                    self.broadcast(self.nick, message)
+                    message = ": %s" % self.supported_modes[topic]
+                    self.broadcast(self.nick, message)
+            elif section == "command":
+                if hasattr(self, "handle_"+topic):
+                    message = ": %s help on command %s" % (SRV_DOMAIN, topic.upper())
+                    self.broadcast(self.nick, message)
+                    command = getattr(self,"handle_"+topic)
+                    docs = command.__doc__.split('\n')
+                    doc = ''
+                    for line in docs:
+                        i = 0
+                        for character in line:
+                            if character == ' ':
+                                i += 1
+                            else:
+                                doc += line[i:] + '\n'
+                                break
+                    message = ": %s" % doc
+                    self.broadcast(self.nick, message)
+                else:
+                    message = ": Unknown command %s"  % topic.upper()
+                    self.broadcast(self.nick, message)
+            elif section == "ocommand":
+                if self.oper:
+                    if hasattr(self.oper, "handle_"+topic):
+                        message = ": %s help on operserv command %s" % (SRV_DOMAIN, topic.upper())
+                        self.broadcast(self.nick, message)
+                        command = getattr(self.oper,"handle_"+topic)
+                        docs = command.__doc__.split('\n')
+                        doc = ''
+                        for line in docs:
+                            i = 0
+                            for character in line:
+                                if character == ' ':
+                                    i += 1
+                                else:
+                                    doc += line[i:] + '\n'
+                                    break
+                        message = ": %s" % doc
+                        self.broadcast(self.nick, message)
+                    else:
+                        message = ": Unknown operserv command %s"  % topic.upper()
+                        self.broadcast(self.nick, message)
+                else:
+                    message  = ": You must be an IRC Operator to view the ocommand section."
+                    self.broadcast(self.nick, message)
+
     def handle_sajoin(self,params):
         """
         Execute self.handle_join() for someone.
         """
-#        if self.oper: do stuff
-        pass
+        if self.oper:
+            target, channel = params.split()
+            victim = self.server.clients.get(target)
+            if victim: victim.handle_join(channel)
 
     def handle_sapart(self,params):
         """
         Execute self.handle_part() for someone.
         """
-#        if self.oper: do stuff
-        pass
+        if self.oper:
+            target, channel = params.split()
+            victim = self.server.clients.get(target)
+            if victim: victim.handle_part(channel)
 
     def handle_sjoin(self,params):
         """
@@ -1035,6 +1225,17 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.clients = {}  # Connected clients (IRCClient instances) by nickname
         self.opers = {}    # Authenticated IRCops (IRCOperator instances) by nickname
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
+        if options.ssl_cert and options.ssl_key:
+            self.ctx = SSL.Context(SSL.SSLv23_METHOD)
+            self.ctx.use_privatekey_file(options.ssl_key)
+            self.ctx.use_certificate_file(options.ssl_cert)
+            self.socket = SSL.Connection(self.ctx, socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            self.server_bind()
+            self.server_activate()
+            logging.info("SSL Enabled.")
+
+    def shutdown_request(self,request):
+        request.shutdown()
 
 class Daemon:
     """
@@ -1058,7 +1259,8 @@ class Daemon:
         try:
             pid = os.fork()
             if pid > 0:
-                try:
+                try: 
+                    # TODO: Read the file first and determine is a psyrcd daemon is currently running.
                     f = file(pidfile, 'w')
                     f.write(str(pid))
                     f.close()
@@ -1076,6 +1278,10 @@ class Daemon:
                 os.close(fd)
             except OSError:
                 pass
+def re_to_irc(r):
+    r = re.sub('\.','\\\.',r)
+    r = re.sub('\*','.*',r)
+    return r
 
 def lookup(addr):
     try:
@@ -1083,7 +1289,23 @@ def lookup(addr):
     except:
         return None
 
-#print color.green + "herp dep derp derp" + color.end
+def hostmatch(entry,host):
+    if (host in entry) or (host == entry):
+        return True
+    else:
+        return False
+
+#class scripts(object):
+def render(script_file, params):
+    template_lookup = TemplateLookup(directories=[scripts_dir], disable_unicode=True, input_encoding='utf-8')
+    template = template_lookup.get_template(script_file)
+    output = template.render(params=params)
+    result = []
+    for line in output.split('\n'):
+        if line == '': continue
+        else: result.append(line)
+    return '\n'.join(result)
+
 class color:
     purple = '\033[95m'
     blue = '\033[94m'
@@ -1101,21 +1323,36 @@ class color:
 
 if __name__ == "__main__":
     # Parameter parsing
-    parser = optparse.OptionParser()
-    parser.set_usage(sys.argv[0] + " [option]")
+    prog = "psyrcd"
+    description = "A nimble IRCd for *NIX."
+    epilog = "Using the -k and -c options in conjunction will enable SSL at the expense of plaintext connections. SSL Support is currently an experimental feature."
 
-    parser.add_option("--start", dest="start", action="store_true", default=True, help="Start psyrcd (default)")
-    parser.add_option("--stop", dest="stop", action="store_true", default=False, help="Stop psyrcd")
-    parser.add_option("--restart", dest="restart", action="store_true", default=False, help="Restart psyrcd")
-    parser.add_option("--pidfile", dest="pidfile", action="store", default='psyrcd.pid', help="PID file to use")
-    parser.add_option("--logfile", dest="logfile", action="store", default='psyrcd.log', help="File to log to")
-    parser.add_option("-a", "--address", dest="listen_address", action="store", default='127.0.0.1', help="IP to listen on")
-    parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667', help="Port to listen on")
-    parser.add_option("-V", "--verbose", dest="verbose", action="store_true", default=False, help="Be verbose (show lots of output)")
-    parser.add_option("-l", "--log-stdout", dest="log_stdout", action="store_true", default=False, help="Also log to stdout")
-    parser.add_option("-e", "--errors", dest="errors", action="store_true", default=False, help="Do not intercept errors.")
-    parser.add_option("-f", "--foreground", dest="foreground", action="store_true", default=False, help="Do not go into daemon mode.")
+    parser = optparse.OptionParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
+    parser.set_usage(sys.argv[0] + " -a0.0.0.0")
+
+    parser.add_option("--start", dest="start", action="store_true", default=True, help="(default)")
+    parser.add_option("--stop", dest="stop", action="store_true", default=False)
+    parser.add_option("--restart", dest="restart", action="store_true", default=False)
+    parser.add_option("--pidfile", dest="pidfile", action="store", default='psyrcd.pid')
+    parser.add_option("--logfile", dest="logfile", action="store", default='psyrcd.log')
+    parser.add_option("-a", "--address", dest="listen_address", action="store", default='127.0.0.1')
+    parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
+    parser.add_option("-s", "--ssl-port", dest="ssl_port", action="store", default='6697')
+    parser.add_option("-V", "--verbose", dest="verbose", action="store_true", default=False)
+    parser.add_option("-l", "--log-stdout", dest="log_stdout", action="store_true")
+    parser.add_option("-f", "--foreground", dest="foreground", action="store_true")
+    parser.add_option("--scripts-dir", dest="scripts_dir",action="store", default='scripts', help="Directory name relative to the psyrcd executable containing auxillary commands [requires mako packge]")
+    parser.add_option("-k", "--key", dest="ssl_key",action="store", default=None, help="Requires --cert")
+    parser.add_option("-c", "--cert", dest="ssl_cert",action="store", default=None, help="Requires --key")
+    parser.add_option("--ssl-help", dest="ssl_help",action="store_true",default=False)
+#    parser.add_option("--link-help", dest="link_help",action="store_true",default=False)
     (options, args) = parser.parse_args()
+
+    if options.ssl_help:
+        print """Keys and certs are generated with:
+$ %sopenssl genrsa 1024 >%s key%s
+$ %sopenssl req -new -x509 -nodes -sha1 -days 365 -key key > %scert%s"""%(color.green,color.orange,color.end,color.green,color.orange,color.end)
+        raise SystemExit
 
     # Logging
     logfile = os.path.join(os.path.realpath(os.path.dirname(sys.argv[0])),options.logfile)
@@ -1152,6 +1389,17 @@ if __name__ == "__main__":
         if not options.restart:
             sys.exit(0)
 
+    # Check the user isn't trying to use TLS without SSL lib
+    if options.ssl_key and options.ssl_cert:
+        if not SSL:
+            sslerror = """
+
+%sOptional crypto requires the pyOpenSSL suite.%s
+
+Try '%ssudo pip install pyOpenSSL%s' or consult your usual package manager.""" % (color.red,color.end,color.green,color.end)
+            raise ImportError(sslerror)
+            raise SystemExit
+
     logging.info("Starting psyrcd")
     logging.debug("Logging to %s" % (logfile))
 
@@ -1166,7 +1414,7 @@ if __name__ == "__main__":
         logging.info("We're being verbose")
 
     if OPER_PASSWORD == True:
-        OPER_PASSWORD = hashlib.new('sha512', str(time.time())).hexdigest()[:20]
+        OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))).hexdigest()[:20]
 
     if not sys.stdin.isatty():
         OPER_PASSWORD = sys.stdin.read().strip('\n').split(' ',1)[0]
@@ -1178,6 +1426,12 @@ if __name__ == "__main__":
     else:
         logging.info("netadmin login:%s /oper %s %s %s" % (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
 
+    # Set variables for processing script files:
+    this_dir = os.path.dirname(os.path.abspath(__file__)) + os.path.sep
+    scripts_dir = this_dir + options.scripts_dir + os.path.sep
+    if TemplateLookup:
+        logging.info("Scripts directory defined as %s" % scripts_dir)
+
     # Start server
     try:
         ircserver = IRCServer((options.listen_address, int(options.listen_port)), IRCClient)
@@ -1187,5 +1441,5 @@ if __name__ == "__main__":
         logging.error(repr(e))
         sys.exit(-2)
     except KeyboardInterrupt:
-        logging.info('Goodbye. I love you.')
+        logging.info('Bye.')
         raise SystemExit

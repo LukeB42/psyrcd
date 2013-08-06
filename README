@@ -1,0 +1,3 @@
+A nimble ircd in python using nought but the stdlib, unless you want SSL or scripting.
+Consult the src and the --help flag.
+
