@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 A nimble ircd in python using nought but the stdlib, unless you want SSL or scripting.
 Consult the src and the --help flag.
 
+=======
+An IRC server written in pure python using nothing but the stdlib.
+
+Please consult the --help option and the beginning of the source for more in-depth information.
+>>>>>>> 9216b887fb3203d01b780ec0fbcff00e2015bd8d
