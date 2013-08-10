@@ -355,7 +355,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             if os.path.isfile(scripts_dir + command.lower()) and TemplateLookup:
                                 logging.info("%s executing %s script" % (self.nick, command.lower()))
                                 # The handler variable must contain something in order to not raise ERR_UNKNOWNCOMMAND
-                                handler = render(command.lower(),params) 
+                                # This is where scripts are executed:
+                                try:
+                                    handler = render(command.lower(),self,params) 
+                                except Exception, e:
+                                    self.broadcast('umode:A', ':%s NOTICE %s :%s\r\n' % (SRV_DOMAIN,self.nick,e))
                                 response = ""
                                 for line in handler.split('\n'):
                                     response = response + ":%s NOTICE %s :%s\r\n" % (SRV_DOMAIN, self.nick, line)
@@ -1299,10 +1303,10 @@ def hostmatch(entry,host):
         return False
 
 #class scripts(object):
-def render(script_file, params):
+def render(script_file, user, params):
     template_lookup = TemplateLookup(directories=[scripts_dir], disable_unicode=True, input_encoding='utf-8')
     template = template_lookup.get_template(script_file)
-    output = template.render(params=params)
+    output = template.render(user=user, params=params)
     result = []
     for line in output.split('\n'):
         if line == '': continue
