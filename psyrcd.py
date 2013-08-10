@@ -33,11 +33,11 @@
 #   - Fix the [SSL] disconnect traceback.
 #   - Make +e/b conform to the supported_modes{} principle
 #   - Create a comparison function for cmode +e/b
-#   - Implement MAX_* et al
+#   - Implement MAX_* et al (probably on IRCClient.__init__)
 #   - Add a K:Line system
 #   - Implement ALL modes.
 #   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
-#   - Unicode all the things.
+#   - Unicode all the things. (bans and re are particularly tricky and important)
 #   - Give scripts more stateful information. IE render(self,file,params)
 #   - Alter IRCClient.handle() to first try IRCOperator.handle_* if self.oper. could redefine PRIVMSG for cmode:X
 #   - Determine the most elegant way of doing simultanious 6667/6697 operation. (fire off ssl bind() in background thread)
@@ -78,8 +78,8 @@ except ImportError:
 
 NET_NAME        = "psyrcd-devel"
 SRV_VERSION     = "psyrcd-0.13"
-SRV_DOMAIN      = "irc.domain.tld"
-SRV_DESCRIPTION = "Changeme."
+SRV_DOMAIN      = "irc.psybernetics.org.uk"
+SRV_DESCRIPTION = "I fought the lol and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
 SRV_CREATED     = time.asctime()
 
@@ -218,7 +218,7 @@ class IRCOperator(object):
         Dump internal server info for debugging.
         """
         # TODO: Different arguments for different stats.
-        # TODO: Show modes and invites, excepts, bans.
+        # TODO: Show modes, invites, excepts, bans.
         response = ':%s NOTICE %s :Clients: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.clients)
         self.client.broadcast(self.client.nick,response)
         for client in self.client.server.clients.values():
@@ -621,7 +621,6 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 raise IRCError(500, '%s :Must be an IRC operator' % channel.name)
 
             # Respect channel bans and exceptions
-            # TODO: Ordinary syntax can throw a re error, instead try for bans: if match(entry,ident)
             if not self.oper:
                 for b in channel.bans:
                     for e in channel.excepts:
@@ -1278,9 +1277,13 @@ class Daemon:
                 os.close(fd)
             except OSError:
                 pass
-def re_to_irc(r):
-    r = re.sub('\.','\\\.',r)
-    r = re.sub('\*','.*',r)
+def re_to_irc(r, really=True):
+    if not really: # Reverse (displaying)
+        r = re.sub('\\\.','.',r)
+        r = re.sub('\.\*','*',r)
+    else: # Forward (setting)
+        r = re.sub('\.','\\\.',r)
+        r = re.sub('\*','.*',r)
     return r
 
 def lookup(addr):
