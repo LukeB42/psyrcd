@@ -1,9 +1,0 @@
-Psyrcd is a pure-python IRC server that only requires the standard library.
-It ought to run anywhere python (>=2.5) runs.
-
-To accept SSL connections you will need to install the PyOpenSSL package.
-
-It currently supports a simple scripting system via mako (http://makotemplates.org)
-This will be extended in future to cover the creation of novel channel modes.
-
-So far it's only been tested on Linux 2.6 with Python 2.7.
