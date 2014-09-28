@@ -1,10 +1,10 @@
 # Psyrcd
 ### The Psybernetics IRC Server.
 
-Psyrcd is a pure-python IRCd that supports scriptable user modes, channel modes and commands,
+Psyrcd is a pure-python IRCd that supports scriptable commands, user modes and channel modes,
 the behavior of which can be redefined while in use.
 
-A NickServ and a ChanServ are included, implemented as scripts.
+A NickServ and ChanServ are included, implemented as scripts.
 
 ![Alt text](psyrcd.png?raw=true "OK now throw NLTK in the mix")
 

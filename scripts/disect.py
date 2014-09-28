@@ -1,6 +1,7 @@
 if 'init' in dir(): provides="command:disect:Divulges information on channel and user objects."
 else:
-  if client.oper:
+  if not client.oper: client.broadcast(client.nick, ': IRCops Only.')
+  else:
     if params:
       if params.startswith('#'):
         channel = client.server.channels.get(params)
@@ -35,5 +36,4 @@ else:
     else:
       client.broadcast(client.nick, ':%s' % client.server.channels)
       client.broadcast(client.nick, ':%s' % client.server.clients)
-  else:
-      client.broadcast(client.nick, ': IRCops Only.')
+
