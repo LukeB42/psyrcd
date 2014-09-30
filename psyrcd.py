@@ -29,8 +29,6 @@
 # CULTUM, ET CETERA, ET CETERA.
  
 # Todo:
-#   - Invert re_to_irc().
-#   - Disable logfile by default.
 #   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
 #   - Implement /notice and possibly /userhost
 #   - The K:Line system
@@ -553,7 +551,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if channel:
                 [client.send_queue.append(message) for client in channel.clients if not 'D' in client.modes]
         elif target.startswith('ident:'):
-            rhost = re_to_irc(target.split(':')[1])
+            rhost = re_to_irc(target.split(':')[1],False)
             [client.send_queue.append(message) for client in self.server.clients.values() \
                 if re.match(rhost,c.client_ident(True))]
         elif target.startswith('umode:'):
@@ -952,7 +950,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     if m in channel.modes:
                         for item in channel.modes[m]:
                             item = item.split()
-                            item[0] = re_to_irc(item[0],False)
+                            item[0] = re_to_irc(item[0])
                             item = ' '.join(item)
                             if m =='b': line = ":%s %s %s %s %s" % \
                                 (SRV_DOMAIN, RPL_BANLIST, self.nick, channel.name, item)
@@ -1091,7 +1089,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                                 modeline+=i
                                                 args.remove(n)
                                         elif (i == 'b' or i == 'e') and i in channel.supported_modes:
-                                            n = re_to_irc(n)
+                                            n = re_to_irc(n,False)
                                             if not i in channel.modes: channel.modes[i]=[]
                                             channel.modes[i].append('%s %s %s' % (n, self.nick, str(time.time())[:10]))
                                             modeline+=i
@@ -1145,7 +1143,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                                 modeline+=i
                                                 args.remove(n)
                                         elif (i == 'b' or i == 'e') and i in channel.modes:                  
-                                            n = re_to_irc(n)
+                                            n = re_to_irc(n,False)
                                             for entry in channel.modes[i]:
                                                 if entry.split()[0] == n:
                                                     channel.modes[i].remove(entry)
@@ -2021,8 +2019,8 @@ class Daemon:
             except OSError:
                 pass
 
-def re_to_irc(r, setting=True):
-    if not setting: # displaying
+def re_to_irc(r, displaying=True):
+    if displaying:
         r = re.sub('\\\.','.',r)
         r = re.sub('\.\*','*',r)
     else:
@@ -2065,7 +2063,7 @@ if __name__ == "__main__":
     parser.add_option("--stop", dest="stop", action="store_true", default=False)
     parser.add_option("--restart", dest="restart", action="store_true", default=False)
     parser.add_option("--pidfile", dest="pidfile", action="store", default='psyrcd.pid')
-    parser.add_option("--logfile", dest="logfile", action="store", default='psyrcd.log')
+    parser.add_option("--logfile", dest="logfile", action="store", default=None)
     parser.add_option("-a", "--address", dest="listen_address", action="store", default='0.0.0.0')
     parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
     parser.add_option("-s", "--ssl-port", dest="ssl_port", action="store", default='6697')
@@ -2090,17 +2088,22 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         raise SystemExit
 
     # Logging
-    logfile = os.path.join(os.path.realpath(os.path.dirname(sys.argv[0])),options.logfile)
-    if options.verbose:
+    if options.log_stdout:
         loglevel = logging.DEBUG
     else:
         loglevel = logging.WARNING
 
-    log = logging.basicConfig(
-        level=loglevel,
-        format='%(asctime)s:%(levelname)s:%(message)s',
-        filename=logfile,
-        filemode='a')
+    if options.logfile:
+        logfile = os.path.join(os.path.realpath(os.path.dirname(sys.argv[0])),options.logfile)
+        log = logging.basicConfig(
+            level=loglevel,
+            format='%(asctime)s:%(levelname)s:%(message)s',
+            filename=logfile,
+            filemode='a')
+    else:
+        log = logging.basicConfig(
+            level=loglevel,
+            format='[%(levelname)s] %(message)s')
 
     # Handle start/stop/restart commands.
     if options.stop or options.restart:
@@ -2125,9 +2128,10 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
             sys.exit(0)
 
     logging.info("Starting psyrcd")
-    logging.debug("Logging to %s" % (logfile))
+    if options.logfile:
+        logging.debug("Logging to %s" % (logfile))
 
-    if options.log_stdout:
+    if options.logfile:
         console = logging.StreamHandler()
         formatter = logging.Formatter('[%(levelname)s] %(message)s')
         console.setFormatter(formatter)
