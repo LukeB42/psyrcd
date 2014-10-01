@@ -44,6 +44,15 @@
 #   - Decorator on handle_* will send `self,channel,func,params` into execute context. channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 #   - /mode #channel +lang:en
 #   - Every time a channel name is the target of a command its modes are checked against Scripts.cmodes.
+# Server linking:
+#   - /operserv connect server:port key; generate key at runtime.
+#   - Connect and negotiate as a server, hand connection off to dedicated class.
+#   - Someone is going to have to disable their scripts.
+#   - Determine the most elegant way of performing breadth-first search with as little stateful info as possible
+#   - decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
+# The Future:
+#   - An IRC bot which can conjoin external channels on different servers to local channels [operserv seval self.client.broadcast()]
+#   - NickServ and ChanServ (nick registration through smtplib..)
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
@@ -348,7 +357,7 @@ def scripts(func):
                 script = s.umodes[mode][0]
                 try:
                     script.execute({'client':self,'params':params,'mode':mode,'func':func})
-                    if 'halt' in script.env: return()
+                    if 'cancel' in script.env: return()
                     if 'params' in script.env: args=(script['params'],)
                 except Exception, err:
                     logging.error('%s in %s' % (err,script.file))
@@ -508,11 +517,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
                             logging.error('%s' % (response))
                       # It helps to comment the following exception when debugging
-#                        except Exception, err:
-#                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
-#                            self.broadcast('umode:W',response)
-#                            self.broadcast(self.nick,response)
-#                            logging.error(err)
+                        except Exception, err:
+                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
+                            self.broadcast('umode:W',response)
+                            self.broadcast(self.nick,response)
+                            logging.error(err)
                         if response:
                             logging.debug('to %s: %s' % (self.client_ident(), response))
                             self.request.send(response + '\r\n')
