@@ -181,6 +181,12 @@ class IRCChannel(object):
         }
         self.ops = [self.modes['v'],self.modes['h'],self.modes['o'],self.modes['a'],self.modes['q']]
 #     # modes['b'] ==> 'mask_regex setter_nick unix_time' -> i.split()[0]
+    def __repr__(self): return('<%s %s at %s>' % (
+        self.__class__.__name__,
+        self.name,
+        hex(id(self))
+        )
+    )
 
 class IRCOperator(object):
     """
@@ -1719,6 +1725,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         for peer in peers: self.broadcast(peer.nick,response)
         try:  self.server.clients.pop(self.nick)
         except KeyError: return()
+        self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % (SRV_DOMAIN, self.client_ident()))
         logging.info('Client disconnected: %s' % (self.client_ident()))
         if len(self.server.clients) == 0:
             logging.info('There goes the last client.')
@@ -1728,12 +1735,13 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         Return a user-readable description of the client
         """
-        return('<%s %s!%s@%s (%s)>' % (
+        return('<%s %s!%s@%s (%s) at %s>' % (
             self.__class__.__name__,
             self.nick,
             self.user,
             self.host[0],
             self.realname,
+            hex(id(self))
             )
         )
 
@@ -2057,7 +2065,7 @@ if __name__ == "__main__":
         (color.blue,color.end,color.blue,color.end)
 
     parser = optparse.OptionParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
-    parser.set_usage(sys.argv[0] + " -flV --preload --debug")
+    parser.set_usage(sys.argv[0] + " -f --preload --debug")
 
     parser.add_option("--start", dest="start", action="store_true", default=True, help="(default)")
     parser.add_option("--stop", dest="stop", action="store_true", default=False)
@@ -2067,8 +2075,6 @@ if __name__ == "__main__":
     parser.add_option("-a", "--address", dest="listen_address", action="store", default='0.0.0.0')
     parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
     parser.add_option("-s", "--ssl-port", dest="ssl_port", action="store", default='6697')
-    parser.add_option("-V", "--verbose", dest="verbose", action="store_true", default=False)
-    parser.add_option("-l", "--log-stdout", dest="log_stdout", action="store_true")
     parser.add_option("-f", "--foreground", dest="foreground", action="store_true")
     parser.add_option("--run-as", dest="run_as",action="store", default=None, help="(defaults to the invoking user)")
     parser.add_option("--scripts-dir", dest="scripts_dir",action="store", default='scripts', help="(defaults to ./scripts/)")
@@ -2087,22 +2093,16 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
 (color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end)
         raise SystemExit
 
-    # Logging
-    if options.log_stdout:
-        loglevel = logging.DEBUG
-    else:
-        loglevel = logging.WARNING
-
     if options.logfile:
         logfile = os.path.join(os.path.realpath(os.path.dirname(sys.argv[0])),options.logfile)
         log = logging.basicConfig(
-            level=loglevel,
-            format='%(asctime)s:%(levelname)s:%(message)s',
+            level=logging.DEBUG,
+            format='%(asctime)s [%(levelname)s] %(message)s',
             filename=logfile,
             filemode='a')
     else:
         log = logging.basicConfig(
-            level=loglevel,
+            level=logging.DEBUG,
             format='[%(levelname)s] %(message)s')
 
     # Handle start/stop/restart commands.
@@ -2127,10 +2127,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         if not options.restart:
             sys.exit(0)
 
-    logging.info("Starting psyrcd")
-    if options.logfile:
-        logging.debug("Logging to %s" % (logfile))
-
     if options.logfile:
         console = logging.StreamHandler()
         formatter = logging.Formatter('[%(levelname)s] %(message)s')
@@ -2143,9 +2139,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         logging.info("Please use --run-as")
         raise SystemExit
 
-    if options.verbose:
-        logging.info("We're being verbose")
-
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))).hexdigest()[:20]
 
@@ -2157,7 +2150,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         print "Netadmin login: %s/oper %s %s%s" % (color.green, OPER_USERNAME, OPER_PASSWORD, color.end)
         Daemon(options.pidfile)
     else:
-        logging.info("Netadmin login: %s/oper %s %s%s" % (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
+        logging.debug("Netadmin login: %s/oper %s %s%s" % (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
 
     if options.run_as:
         try:
@@ -2170,6 +2163,9 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
 
     if options.ssl_cert and options.ssl_key:
         logging.info("SSL Enabled.")
+
+    if options.logfile:
+        logging.info("Logging to %s" % (logfile))
 
     # Set variables for processing script files:
     this_dir = os.path.abspath(os.path.curdir) + os.path.sep

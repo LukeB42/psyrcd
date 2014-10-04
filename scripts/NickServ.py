@@ -485,7 +485,7 @@ if 'command' in dir():
 			for r in t:
 				if is_expired(r['time_use']):
 					c.execute("DELETE FROM %s WHERE nick='%s'" % \
-						(TABLE, escape(r['nickr'])))
+						(TABLE, escape(r['nick'])))
 					nsmsg("\x02%s\x0F has expired due to inactivity." % r['nick'])
 					client.broadcast('umode:W',':%s NOTICE * :%s expired \x02%s\x0F.' % (NS_IDENT, client.nick, r['nick']))
 			db.commit()

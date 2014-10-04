@@ -12,7 +12,7 @@
 # \x0F colour reset
 # \x16 reverse colour
 # \x1F underlined text
-#                            Verify all.
+
 import re
 import time
 import hashlib
@@ -139,6 +139,27 @@ def is_op(nick, channel):
 	else:
 		return(False)
 
+def secureops(channel):
+	for user in channel.clients:
+		if not 'R' in user.modes or (user.nick not in ops and user.nick != c['owner']):
+			if 'q' in channel.modes and user.nick in channel.modes['q']: csmode(channel,'-q',user.nick)
+			if 'a' in channel.modes and user.nick in channel.modes['a']: csmode(channel,'-a',user.nick)
+			if 'o' in channel.modes and user.nick in channel.modes['o']: csmode(channel,'-o',user.nick)
+			if 'h' in channel.modes and user.nick in channel.modes['h']: csmode(channel,'-h',user.nick)
+			if 'v' in channel.modes and user.nick in channel.modes['v']: csmode(channel,'-v',user.nick)
+	csmsg("Enforced SecureOps.")
+
+def restrict(channel):
+	for user in channel.clients.copy():
+		if not 'R' in user.modes or (user.nick not in ops and user.nick != c['owner']):
+			for op_list in channel.ops:
+				if user.nick in op_list: op_list.remove(user.nick)
+			client.broadcast(channel.name, ':%s KICK %s %s :RESTRICTED' % \
+				(CS_IDENT, channel.name, user.nick))
+			user.channels.pop(channel.name)
+			channel.clients.remove(user)
+	csmsg("Enforced RESTRICTED.")
+
 def init_channel(client, channel):
 	"""
 	Handle a channel being initialised, or a client joining a registered one.
@@ -221,7 +242,7 @@ def csmsg(msg):
 	client.broadcast(client.nick, ":%s NOTICE %s :%s" % \
 		(CS_IDENT,client.nick,msg))
 
-def csmode(channel, mode, args=''):
+def csmode(channel, mode, args=None):
 	if type(mode) == str or type(mode) == unicode: mode=[mode]
 	for x in mode:
 		f = x[0]
@@ -232,12 +253,12 @@ def csmode(channel, mode, args=''):
 			if f == '+' and not m in channel.modes: channel.modes[m]=[]
 			if f == '+' and not args in channel.modes[m]:
 				if type(args) == list: channel.modes[m].extend(args)
-				else: channel.modes[m].append(args)
+				elif args: channel.modes[m].append(args)
 			elif f == '-':
 				if args and args in channel.modes[m]: channel.modes[m].remove(args)
 				else: del channel.modes[m]
-			client.broadcast(channel.name, ':%s MODE %s %s %s' % \
-				(CS_IDENT,channel.name,f+m,args))
+			if not args: client.broadcast(channel.name, ':%s MODE %s %s' % (CS_IDENT,channel.name,f+m))
+			else: client.broadcast(channel.name, ':%s MODE %s %s %s' % (CS_IDENT,channel.name,f+m,args))
 
 def fmt_timestamp(ts): return datetime.datetime.fromtimestamp(int(ts)).strftime('%b %d %H:%M:%S %Y')
 
@@ -594,9 +615,23 @@ if 'command' in dir():
 				csmsg("IRC Operators may supply anything as a password.")
 
 		elif args == 'enforce':
-			csmsg("Syntax: \x02ENFORCE \x1Fchannel\x0F \x02[\x0F\x02\x1Fwhat\x0F\x02]\x0F")
+			csmsg("Syntax: \x02ENFORCE \x1Fchannel\x0F \x02\x1Fwhat\x0F")
 			csmsg("")
-
+			csmsg("Enforce various channel modes and options. The \x1Fchannel\x0F")
+			csmsg("option indicates what channel to enforce the modes and options")
+			csmsg("on. The \x1Fwhat\x0F option indicates what modes and options to")
+			csmsg("enforce, and can be any of SET, SECUREOPS, RESTRICTED or MODES.")
+			csmsg("")
+			csmsg("If \x1Fwhat\x0F is SET, it will enforce SECUREOPS and RESTRICTED")
+			csmsg("on the users currently in the channel, if they are set. Give")
+			csmsg("SECUEROPS to enforce the SECUREOPS option, even if it is not")
+			csmsg("enabled. Use RESTRICTED to enforce the RESTRICTED option, also")
+			csmsg("if it is not enabled.")
+			csmsg("")
+			csmsg("If \x1Fwhat\x0F is MODES, it will enforce any stored modes")
+			csmsg("associated with the channel.")
+			csmsg("")
+			csmsg("Limited to channel Founders and IRC Operators.")
 
 		elif args == 'ban':
 			csmsg("Syntax: \x02BAN \x1Fchannel\x0F \x02\x1Fmask\x0F")
@@ -954,7 +989,40 @@ if 'command' in dir():
 						csmsg("\x02/CHANSERV HELP SET\x0F for more information.")
 			del c
 
-	elif cmd == 'enforce': pass
+	elif cmd == 'enforce': # TODO: secureops(channel), restricted(channel)
+		if not args or len(args.split()) != 2: csmsg("Syntax: \x02ENFORCE \x1Fchannel\x0F \x02\x1Fwhat\x0F")
+		else:
+			chan,what = args.split()
+			what = what.lower()
+			c = Channel(chan)
+			channel = client.server.channels.get(chan)
+			if (not 'R' in client.modes or client.nick != c['owner']) and not client.oper:
+				csmsg("Access denied.")
+			elif not c.r: csmsg("\x02%s\x0F is not registered." % chan)
+			elif not channel: csmsg("\x02%s\x0F is not in use." % chan)
+			else:
+				ops = c['operators']
+				if what == 'set':
+					if c['secureops']: secureops(channel)
+					else: csmsg("Didn't enforce SecureOps.")
+					if c['restricted']: restrict(channel)
+					else: csmsg("Didn't enforce RESTRICTED.")
+				elif what == 'secureops': secureops(channel)
+				elif what == 'restricted': restrict(channel)
+				elif what == 'modes':
+					modes = c['modes']
+					for_removal = []
+					for mode in channel.modes:
+						if '+'+mode not in modes and mode not in ['R','n','t','b','e','v','h','o','a','q']:
+							for_removal.append('-'+mode)
+					for mode in for_removal: csmode(channel,mode)
+					for mode, settings in c['modes'].items():
+						if not mode[1:] in channel.modes:
+							if ',' in settings: settings = settings.split(',')
+							csmode(channel,mode,settings)
+					if modes: csmsg("Enforced \x02%s\x0F on \x02%s\x0F." % (', '.join(modes.keys()),channel.name))
+					else: csmsg("Enforced modes.")
+				else: csmsg("Unkown option \x02%s\x0F." % what)
 
 	elif cmd == 'sop':
 		if not args or args.split()[1].lower() not in ['add','del','list','clear']:
