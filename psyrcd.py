@@ -1,7 +1,7 @@
 #!/usr/bin/env python 
 # *-* coding: UTF-8 *-*
 
-# Psyrcd the Psybernetics IRC server.
+# psyrcd the Psybernetics IRC server.
 # Based on hircd.py. Modifications have been added for robustness and flexibility.
 # Gratitude to Ferry Boender for starting this off
 # http://www.electricmonk.nl/log/2009/09/14/hircd-minimal-irc-server-in-python/
@@ -25,9 +25,8 @@
 # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-# OTHER DEALINGS IN THE SOFTWARE. FAX MENTIS INCENDIUM GLORIA
-# CULTUM, ET CETERA, ET CETERA.
- 
+# OTHER DEALINGS IN THE SOFTWARE.
+
 # Todo:
 #   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
 #   - Implement /notice and possibly /userhost
@@ -35,24 +34,31 @@
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
 # Scripting:
+#   - /operserv scripts                      Lists all loaded scripts. Indicates file modifications if --debug isn't being used.
+#   - /operserv scripts list                 Lists all available scripts.
+#   - /operserv scripts load scriptname      Loads the specified file as a code object using a specific namespace, where a variable called 'init' is set to True.
+#   - /operserv scripts unload scriptname    Unloads the specified file by executing its code object with 'init' set to False.
+#                                            This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
+#
 #   - namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}
-#   - init and unload should cause the script to create or remove any necessary datastructures on channels and clients.
-#   - Modes are then appended to the necessary supported_modes dictionary and removed upon unload.
-#   - Modes can check for the presence of a variable named "display" in order to return custom messages via a variable named output.
-#   - Setting a script mode will place the mode into list of modes set on an object. 
-#   - Decorators will cycle through modes and match to server.scripts.i.keys().
+#   - Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists.
+#   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list by default.
+#   - The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
+#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like  /mode #channel +numpy:123,456,789,0
+#   - /mode #channel -numpy: would clear the mode completely, rather than removing individual parameters and then the mode itself.
+#   - init and unload ought to cause the script to create or remove structures on channels and clients.
+#   - Modes on load are automatically appended to the necessary supported_modes dictionary and removed on unload.
+#   - Mode scripts can check for the presence of a variable named "display" in their namespace in order to return custom messages in a variable named "output".
+#   - @Decorators cycle through modes and match to server.scripts.u/cmodes.keys().
 #   - Decorator on handle_* will send `self,channel,func,params` into execute context. channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 #   - /mode #channel +lang:en
 #   - Every time a channel name is the target of a command its modes are checked against Scripts.cmodes.
-# Server linking:
+# The Future:
 #   - /operserv connect server:port key; generate key at runtime.
 #   - Connect and negotiate as a server, hand connection off to dedicated class.
 #   - Someone is going to have to disable their scripts.
 #   - Determine the most elegant way of performing breadth-first search with as little stateful info as possible
 #   - decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
-# The Future:
-#   - An IRC bot which can conjoin external channels on different servers to local channels [operserv seval self.client.broadcast()]
-#   - NickServ and ChanServ (nick registration through smtplib..)
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
@@ -74,7 +80,7 @@ MAX_TICKS     = [0,15]  # select()s through active connections before we start p
 
 OPER_USERNAME = os.environ['USER']
 OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
-                        # openssl rand -base64 32 | ./psyrcd -flVa0.0.0.0
+                        # openssl rand -base64 32 | ./psyrcd --preload -f
 
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
@@ -451,7 +457,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         logging.info('Client connected: %s' % self.host[0])
 
-        # TLS here.
+        # TLS here. TODO: Recognise other SSL handshakes.
         if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16,socket.MSG_PEEK)):
             logging.info('%s is using SSL.' % self.host[0])
             if options.ssl_cert and options.ssl_key:
@@ -505,6 +511,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             else:
                                 command = line
                                 params = ''
+                            # The following part checks if a command is in Scripts.commands and calls its __call__ method.
+                            # This allows scripts to replace built-in commands.
                             script = self.server.scripts.commands.get(command.lower())
                             if script:
                                 handler = script[0]
@@ -1328,7 +1336,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick, user.rhost, user.host[0])
                     self.broadcast(self.nick,response)
                 else:
-                    response = ':%s %s %s %s %s %s' % \
+                    response = ':%s %s %s %s %s' % \
                         (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick, user.host[0])
                     self.broadcast(self.nick,response)
 
@@ -1710,6 +1718,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         client doesn't linger around in any channel or the client list, in case
         the client didn't properly close the connection with PART and QUIT.
         """
+        if not self.nick: return()
         if not response:
             response = ':%s QUIT :EOF from client' % (self.client_ident(True))
         if not self.nick in self.server.clients: return()
@@ -1901,7 +1910,7 @@ class Scripts(object):
                         del self.commands[i]
                         err = "Unloaded %s %s (%s)" % (d[0],i,description)
                         if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
-                        logging.error(err)
+                        logging.info(err)
             elif d[0] == 'cmode':
                 for i in d[1].split(','):
                     if i in self.cmodes:
@@ -1916,7 +1925,7 @@ class Scripts(object):
                         del self.cmodes[i]
                         err = "Unloaded %s %s (%s)" % (d[0],i,description)
                         if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
-                        logging.error(err)
+                        logging.info(err)
             elif d[0] == 'umode':
                 for i in d[1].split(','):
                     if i in self.umodes:
@@ -1930,7 +1939,7 @@ class Scripts(object):
                     del self.umodes[i]
                     err = "Unloaded %s %s (%s)" % (d[0],i,description)
                     if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
-                    logging.error(err)
+                    logging.info(err)
             else:
                 err = "%s doesn't provide anything I can recognize." % (self.dir+script)
                 if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
@@ -2074,7 +2083,6 @@ if __name__ == "__main__":
     parser.add_option("--logfile", dest="logfile", action="store", default=None)
     parser.add_option("-a", "--address", dest="listen_address", action="store", default='0.0.0.0')
     parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
-    parser.add_option("-s", "--ssl-port", dest="ssl_port", action="store", default='6697')
     parser.add_option("-f", "--foreground", dest="foreground", action="store_true")
     parser.add_option("--run-as", dest="run_as",action="store", default=None, help="(defaults to the invoking user)")
     parser.add_option("--scripts-dir", dest="scripts_dir",action="store", default='scripts', help="(defaults to ./scripts/)")
@@ -2188,9 +2196,13 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         sys.exit(-2)
     except KeyboardInterrupt:
         ircserver.shutdown()
-#        if options.preload and scripts_dir:
-#            for filename in os.listdir(scripts_dir):
-#                if os.path.isfile(scripts_dir + filename):
-#                    ircserver.scripts.unload(filename)
+        if options.preload and scripts_dir:
+            scripts = []
+            for x in ircserver.scripts.i.values():
+                for script in x.values():
+                    scripts.append(script[0].file)
+            scripts = set(scripts)
+            for script in scripts:
+                ircserver.scripts.unload(script[script.rfind(os.sep)+1:])
         logging.info('Bye.')
         raise SystemExit
