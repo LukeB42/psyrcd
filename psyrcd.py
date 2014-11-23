@@ -175,7 +175,7 @@ class IRCChannel(object):
 #            'z':"Only allow clients connected via SSL.",
         }
         self.modes = {
-            'n':1, # Using ints here because they consume less memory.
+            'n':1,
             't':1,
             'v':[],
             'h':[],
@@ -396,6 +396,7 @@ def scripts(func):
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                             (SRV_DOMAIN,self.client_ident(),err,script.file))
         return(func(self, *args))
+    wrapper.__doc__ = func.__doc__
     return(wrapper)
 
 def disabled(func):
@@ -477,6 +478,13 @@ class IRCClient(SocketServer.BaseRequestHandler):
             self.request.send(': MAX_CLIENTS exceeded.\n')
             self.request.close()
             logging.info('Connection refused to %s: MAX_CLIENTS exceeded.' % self.client_ident())
+
+        # Check this host isn't K:Lined.
+        for line, attributes in self.server.lines['K'].items():
+            if re.match(line, self.host[0]):
+                self.request.send(': This host is K:Lined. Reason: %s\n' % attributes[2])
+                self.request.close()
+                logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
 
         while True:
             buf = ''
@@ -1672,9 +1680,54 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     self.broadcast(self.nick, message)
 
     @scripts
+    def handle_kline(self,params):
+        """
+        Syntax: /kline add host reason
+                /kline remove host
+                /kline list
+
+        Permits IRC Operators to ban a given host from the server.
+        Hostnames may contain wildcards. A reason must also be supplied.
+        Hosts that match newly defined K:Lines will be disconnected.
+        """
+        if self.oper:
+            if not params or params.lower() == 'list':
+                if not self.server.lines['K']: return(': There are no K:Lines defined on this server.')
+                data = []
+                for kline, attributes in self.server.lines['K'].items():
+                    t = int(attributes[1])
+                    tmp={}
+                    tmp['Operator'] = attributes[0]
+                    tmp['Host'] = re_to_irc(kline)
+                    tmp['Time'] = '%s (%s)' % (time.ctime(t), tconv(time.time() - t) + ' ago')
+                    tmp['Reason'] = attributes[2]
+                    data.append(tmp)
+                fmt = format(data)
+                table = tabulate(fmt, ul='-')(data)
+                for line in table.split('\n'): self.msg(line)
+                del data, fmt, table, t, tmp
+                return()
+            cmd = params.split()[0]
+            if cmd.lower() == 'add':
+                if len(params.split()) < 3: raise IRCError(ERR_NEEDMOREPARAMS, "You must also supply a reason.")
+                t = str(time.time())[:10]
+                host, reason = params.split(' ',2)[1:]
+                host = re_to_irc(host,False)
+                if host in self.server.lines['K']: raise IRCError(500, "Host already K:Lined.")
+                self.server.lines['K'][host] = [self.client_ident(True), t, reason]
+                self.broadcast('umode:W', ':%s NOTICE * :%s added a K:Line for %s "%s"' % (SRV_DOMAIN, self.client_ident(True), re_to_irc(host), reason))
+
+            elif cmd.lower() == 'remove':
+                if not ' ' in params: raise IRCError(ERR_NEDMOREPARAMS, "You didn't specify which K:Line to remove.")
+                host = re_to_irc(params.split()[1],False)
+                if host in self.server.lines['K']:
+                    del self.server.lines['K'][host]
+                self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
+
+    @scripts
     def handle_sajoin(self,params):
         """
-        Execute self.handle_join() for someone.
+        Permits an IRC Operator to force a client to JOIN a channel.
         """
         if self.oper:
             target, channel = params.split()
@@ -1684,7 +1737,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
     @scripts
     def handle_sapart(self,params):
         """
-        Execute self.handle_part() for someone.
+        Permits an IRC Operator to force a client to PART a channel.
         """
         if self.oper:
             target, channel = params.split()
@@ -2001,6 +2054,39 @@ def format(data):
         else: fmt.append((key, key, value))
     if r_append: fmt.append(r_append)
     return(fmt)
+
+def tconv(seconds):
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    weeks, days = divmod(days, 7)
+    months, weeks = divmod(weeks, 4)
+    years, months = divmod(months, 12)
+    s=""
+    if years:
+        if years == 1: s+= "%i year, " % (years)
+        else: s+= "%i years, " % (years)
+    if months:
+        if months == 1: s+= "%i month, " % (months)
+        else: s+= "%i months, " % (months)
+    if weeks:
+        if weeks == 1: s+= "%i week, " % (weeks)
+        else: s+= "%i weeks, " % (weeks)
+    if days:
+        if days == 1: s+= "%i day, " % (days)
+        else: s+= "%i days, " % (days)
+    if hours:
+        if hours == 1: s+= "%i hour " % (hours)
+        else: s+= "%i hours " % (hours)
+    if minutes:
+        if len(s) > 0:
+            if minutes == 1: s+= "and %i minute" % (minutes)
+            else: s+= "and %i minutes" % (minutes)
+        else:
+            if minutes == 1: s+= "%i minute" % (minutes)
+            else: s+= "%i minutes" % (minutes)
+    if s =='': s='a few seconds'
+    return s
 
 # Fork a child and end the parent (detach from parent)
 # Change some defaults so the daemon doesn't tie up dirs, etc.
