@@ -120,12 +120,12 @@ def re_to_irc(r, displaying=True):
 def op_cmp(user,target):
 	if user != 'q' and target == 'q': return false
 	elif (user != 'a' and user != 'q') and (target == 'a' or target == 'q'):
-		return false
+		return False
 	elif (user != 'o' and user != 'a' and user != 'q') \
 	and (target == 'o' or target == 'a' or target == 'q'):
-		return false
+		return False
 	else:
-		return true
+		return True
 
 def is_op(nick, channel):
 	if 'h' in channel.modes and nick in channel.modes['h']:
@@ -989,7 +989,7 @@ if 'command' in dir():
 						csmsg("\x02/CHANSERV HELP SET\x0F for more information.")
 			del c
 
-	elif cmd == 'enforce': # TODO: secureops(channel), restricted(channel)
+	elif cmd == 'enforce':
 		if not args or len(args.split()) != 2: csmsg("Syntax: \x02ENFORCE \x1Fchannel\x0F \x02\x1Fwhat\x0F")
 		else:
 			chan,what = args.split()
