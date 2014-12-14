@@ -30,7 +30,6 @@
 # Todo:
 #   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
 #   - Implement /notice and possibly /userhost
-#   - The K:Line system
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
 # Scripting:
@@ -41,18 +40,19 @@
 #                                            This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
 #
 #   - namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}
-#   - Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists.
-#   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list by default.
+#   - Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
+#   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list or whatever structure your script manually sets.
 #   - The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
-#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like  /mode #channel +numpy:123,456,789,0
+#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: /mode #channel +numpy:123,456,789,0
 #   - /mode #channel -numpy: would clear the mode completely, rather than removing individual parameters and then the mode itself.
 #   - init and unload ought to cause the script to create or remove structures on channels and clients.
 #   - Modes on load are automatically appended to the necessary supported_modes dictionary and removed on unload.
 #   - Mode scripts can check for the presence of a variable named "display" in their namespace in order to return custom messages in a variable named "output".
-#   - @Decorators cycle through modes and match to server.scripts.u/cmodes.keys().
-#   - Decorator on handle_* will send `self,channel,func,params` into execute context. channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
-#   - /mode #channel +lang:en
-#   - Every time a channel name is the target of a command its modes are checked against Scripts.cmodes.
+#   - @scripts decorator cycles through modes and match to server.scripts.u/cmodes.keys().
+#   - Every time a channel name is the target of a command its modes are checked against IRCServer.Scripts.cmodes.
+#   - Decorator on handle_* will send `self,channel,func,params` into your scripts default namespace.
+#   - For example: /mode #channel +lang:en
+#   - channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 # The Future:
 #   - /operserv connect server:port key; generate key at runtime.
 #   - Connect and negotiate as a server, hand connection off to dedicated class.
@@ -248,7 +248,7 @@ class IRCOperator(object):
         """
         Dump internal server info for debugging.
         """
-        # TODO: Different arguments for different stats. Phase this out in favour of /stats
+        # TODO: Phase this out in favour of /stats
         # TODO: Show modes, invites, excepts, bans.
         response = ':%s NOTICE %s :Clients: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.clients)
         self.client.broadcast(self.client.nick,response)
@@ -1686,8 +1686,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 /kline remove host
                 /kline list
 
-        Permits IRC Operators to ban a given host from the server.
-        Hostnames may contain wildcards. A reason must also be supplied.
+        Permits IRC Operators to ban a given address from the server.
+        Addresses may contain wildcards. A reason must also be supplied.
         Hosts that match newly defined K:Lines will be disconnected.
         """
         if self.oper:

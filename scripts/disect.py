@@ -19,7 +19,7 @@ else:
       else:
         c = client.server.clients.get(params)
         if c:
-          message = 'Client %s: %s\n' % (c.nick, repr(client))
+          message = 'Client %s: %s\n' % (c.nick, repr(c))
           if c.vhost:
               message += 'Vhost: %s\n' % c.vhost
           if c.user:
