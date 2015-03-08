@@ -165,7 +165,7 @@ if 'command' in dir():
 			nsmsg("nickname(s).")
 
 		elif args == 'register':
-			nsmsg("Syntax: \x02/REGISTER <PASSWORD>\x0F")
+			nsmsg("Syntax: \x02REGISTER <PASSWORD>\x0F")
 			nsmsg("Up to \x02%i\x0F nicknames may be registered per IP address." % MAX_NICKS)
 			nsmsg("Nicknames will be forgotten about after %i days if not used." % MAX_DAYS_UNPRESENT)
 
