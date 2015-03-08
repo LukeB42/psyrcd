@@ -34,6 +34,13 @@ else:
           for line in message.split('\n'):
             client.broadcast(client.nick, ': %s' % line)
     else:
+      import sys, resource
+      rusage_denom = 1024
+      if sys.platform == 'darwin':
+        # ... it seems that in OSX the output is different units ...
+        rusage_denom = rusage_denom * rusage_denom
+      mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / rusage_denom
+      client.broadcast(client.nick, ": Currently consuming %iMb of memory." % int(mem))
       client.broadcast(client.nick, ':%s' % client.server.channels)
       client.broadcast(client.nick, ':%s' % client.server.clients)
 

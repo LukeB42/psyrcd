@@ -559,7 +559,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             MAX_TICKS[0] = 0
                         else:
                             MAX_TICKS[0] += 1
-        self.request.close()
+#        self.request.close()
 
 #    @links
     def broadcast(self,target,message):
@@ -1775,7 +1775,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         if not response:
             response = ':%s QUIT :EOF from client' % (self.client_ident(True))
         if not self.nick in self.server.clients: return()
-        self.request.send(response)
+#        self.request.send(response)
         peers = []
         for channel in self.channels.values():
             if self in channel.clients: channel.clients.remove(self)
