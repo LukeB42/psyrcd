@@ -222,9 +222,6 @@ class IRCOperator(object):
             return('Internal Error: %s' % e)
 
     def handle_seval(self, params):
-        """
-        BAD IDEA
-        """
         if 'A' in self.client.modes:
             message = ': %s' % (eval(params))
             return(message)
@@ -499,7 +496,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
 
             # See if the client has any commands for us.
             if len(ready_to_read) == 1 and ready_to_read[0] == self.request:
-                data = self.request.recv(1024)
+                try: data = self.request.recv(1024)
+                except Exception, e:
+                    logging.error(e.message)
+                    break
 
                 if not data:
                     break
@@ -1785,7 +1785,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 for p in channel.clients: peers.append(p)
         peers = set(peers)
         for peer in peers: self.broadcast(peer.nick,response)
-        try:  self.server.clients.pop(self.nick)
+        try: self.server.clients.pop(self.nick)
         except KeyError: return()
         self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % (SRV_DOMAIN, self.client_ident()))
         logging.info('Client disconnected: %s' % (self.client_ident()))
