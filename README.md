@@ -6,6 +6,6 @@ the behavior of which can be redefined while in use.
 
 A NickServ and ChanServ are included as scripts.
 
-![Alt text](psyrcd.png?raw=true "OK now throw NLTK in the mix")
+![Alt text](doc/psyrcd.png?raw=true "OK now throw NLTK in the mix")
 
 Tested with Python 2.7 on Linux 2.6.
