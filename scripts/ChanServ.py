@@ -157,8 +157,7 @@ def is_op(nick, channel):
 
 def secureops(channel):
     for user in channel.clients:
-        if not 'R' in user.modes or (user.nick not in ops and user.nick !=
-                                     c['owner']):
+        if not 'R' in user.modes or (user.nick not in ops and user.nick != c['owner']):
             if 'q' in channel.modes and user.nick in channel.modes['q']:
                 csmode(channel, '-q', user.nick)
             if 'a' in channel.modes and user.nick in channel.modes['a']:
@@ -174,8 +173,7 @@ def secureops(channel):
 
 def restrict(channel):
     for user in channel.clients.copy():
-        if not 'R' in user.modes or (user.nick not in ops and user.nick !=
-                                     c['owner']):
+        if not 'R' in user.modes or (user.nick not in ops and user.nick != c['owner']):
             for op_list in channel.ops:
                 if user.nick in op_list: op_list.remove(user.nick)
             client.broadcast(channel.name, ':%s KICK %s %s :RESTRICTED' % \
@@ -484,44 +482,32 @@ if 'command' in dir():
             csmsg("     SET         Set channel options and information")
             csmsg("     SOP         Modify the list of SOP users")
             csmsg("     AOP         Modify the list of AOP users")
-            csmsg(
-                "     HOP         Maintains the HOP (HalfOP) list for a channel")
-            csmsg(
-                "     VOP         Maintains the VOP (VOiced People) list for a channel")
+            csmsg("     HOP         Maintains the HOP (HalfOP) list for a channel")
+            csmsg("     VOP         Maintains the VOP (VOiced People) list for a channel")
             csmsg("     DROP        Cancel the registration of a channel")
             csmsg("     BAN         Bans a selected host on a channel")
-            csmsg(
-                "     UNBAN       Remove ban on a selected host from a channel")
-            csmsg(
-                "     CLEAR       Tells ChanServ to clear certain settings on a channel")
+            csmsg("     UNBAN       Remove ban on a selected host from a channel")
+            csmsg("     CLEAR       Tells ChanServ to clear certain settings on a channel")
             csmsg("     OWNER       Gives you owner status on channel")
             csmsg("     DEOWNER     Removes your owner status on a channel")
             csmsg("     PROTECT     Protects a selected nick on a channel")
             csmsg("     DEPROTECT   Deprotects a selected nick on a channel")
-            csmsg(
-                "     OP          Gives Op status to a selected nick on a channel")
+            csmsg("     OP          Gives Op status to a selected nick on a channel")
             csmsg("     DEOP        Deops a selected nick on a channel")
             csmsg("     HALFOP      Halfops a selected nick on a channel")
             csmsg("     DEHALFOP    Dehalfops a selected nick on a channel")
             csmsg("     VOICE       Voices a selected nick on a channel")
             csmsg("     DEVOICE     Devoices a selected nick on a channel")
-            csmsg(
-                "     INVITE      Tells ChanServ to invite you into a channel")
+            csmsg("     INVITE      Tells ChanServ to invite you into a channel")
             csmsg("     KICK        Kicks a selected nick from a channel")
-            csmsg(
-                "     LIST        Lists all registered channels matching a given pattern")
-            csmsg(
-                "     LOGOUT      This command will logout the selected nickname")
-            csmsg(
-                "     TOPIC       Manipulate the topic of the specified channel")
-            csmsg(
-                "     INFO        Lists information about the named registered channel")
+            csmsg("     LIST        Lists all registered channels matching a given pattern")
+            csmsg("     LOGOUT      This command will logout the selected nickname")
+            csmsg("     TOPIC       Manipulate the topic of the specified channel")
+            csmsg("     INFO        Lists information about the named registered channel")
             csmsg("     APPENDTOPIC Add text to a channels topic")
-            csmsg(
-                "     ENFORCE     Enforce various channel modes and set options")
+            csmsg("     ENFORCE     Enforce various channel modes and set options")
             csmsg("")
-            csmsg("Note that any channel which is not used for %i days" %
-                  MAX_DAYS_UNUSED)
+            csmsg("Note that any channel which is not used for %i days" % MAX_DAYS_UNUSED)
             csmsg("(i.e. which no user on the channel's access list enters")
             csmsg("for that period of time) will be automatically dropped.")
 
@@ -532,8 +518,7 @@ if 'command' in dir():
             csmsg("Registers a channel in the ChanServ database.  In order")
             csmsg("to use this command, you must first be a channel operator")
             csmsg("on the channel you're trying to register.  The password")
-            csmsg(
-                "is used with the \x02IDENTIFY\x0F command to allow others to")
+            csmsg("is used with the \x02IDENTIFY\x0F command to allow others to")
             csmsg("make changes to the channel settings at a later time.")
             csmsg("The last parameter, which \x02must\x0F be included, is a")
             csmsg("general description of the channel's purpose.")
@@ -543,8 +528,7 @@ if 'command' in dir():
             csmsg("to change all of the channel settings for the channel;")
             csmsg("ChanServ will also automatically give the founder")
             csmsg("channel-operator privileges when s/he enters the channel.")
-            csmsg(
-                "See the \x02ACCESS\x0F command (\x02/ChanServ HELP ACCESS\x0F) for")
+            csmsg("See the \x02ACCESS\x0F command (\x02/ChanServ HELP ACCESS\x0F) for")
             csmsg("information on giving a subset of these privileges to")
             csmsg("other channel users.")
             csmsg("")
@@ -552,14 +536,12 @@ if 'command' in dir():
             csmsg("first registered your nickname.  If you haven't,")
             csmsg("use \x02/NickServ HELP\x0F for information on how to do so.")
             csmsg("")
-            csmsg("Note that any channel which is not used for %i days" %
-                  MAX_DAYS_UNUSED)
+            csmsg("Note that any channel which is not used for %i days" % MAX_DAYS_UNUSED)
             csmsg("(i.e. which no user on the channel's access list enters")
             csmsg("for that period of time) will be automatically dropped.")
 
         elif args == 'set':
-            csmsg(
-                "Syntax: \x02SET \x1Fchannel\x0F \x02\x1Foption\x0F \x02\x1Fparameters\x0F")
+            csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02\x1Foption\x0F \x02\x1Fparameters\x0F")
             csmsg("")
             csmsg("Allows the channel founder to set various channel options")
             csmsg("and other information.")
@@ -571,22 +553,18 @@ if 'command' in dir():
             csmsg("     PASSWORD      Set the founder password")
             csmsg("     DESC          Set the channel description")
             csmsg("     URL           Associate a URL with the channel")
-            csmsg(
-                "     EMAIL         Associate an E-mail address with the channel")
-            csmsg(
-                "     ENTRYMSG      Set a message to be sent to users when they")
+            csmsg("     EMAIL         Associate an E-mail address with the channel")
+            csmsg("     ENTRYMSG      Set a message to be sent to users when they")
             csmsg("                   enter the channel")
             csmsg("     MLOCK         Lock channel modes on or off")
             csmsg("     KEEPTOPIC     Retain topic when channel is not in use")
             csmsg("     PEACE         Regulate the use of critical commands")
             csmsg("     RESTRICTED    Restrict access to the channel")
             csmsg("     SECUREOPS     Stricter control of chanop status")
-            csmsg(
-                "     SIGNKICK      Sign kicks that are done with KICK command")
+            csmsg("     SIGNKICK      Sign kicks that are done with KICK command")
             csmsg("     TOPICLOCK     Topic can only be changed with TOPIC")
             csmsg("")
-            csmsg(
-                "Type \x02/CHANSERV HELP SET \x1Foption\x0F for more information on a")
+            csmsg("Type \x02/CHANSERV HELP SET \x1Foption\x0F for more information on a")
             csmsg("particular option.")
 
         if args == 'set founder':
@@ -599,10 +577,8 @@ if 'command' in dir():
             csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02SUCCESSOR \x1Fnick\x0F")
             csmsg("")
             csmsg("Changes the successor of a channel. If the founders'")
-            csmsg(
-                "nickname nickname expires or is dropped while the channel is still")
-            csmsg(
-                "registered, the successor will become the new founder of the")
+            csmsg("nickname nickname expires or is dropped while the channel is still")
+            csmsg("registered, the successor will become the new founder of the")
             csmsg("channel. However, if the successor already has too many")
             csmsg("channels registered (%i), the channel will be dropped" %
                   MAX_CHANNELS)
@@ -610,14 +586,12 @@ if 'command' in dir():
             csmsg("nickname must be a registered one.")
 
         elif args == 'set password':
-            csmsg(
-                "Syntax: \x02SET \x1Fchannel\x0F \x02PASSWORD \x1Fpassword\x0F")
+            csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02PASSWORD \x1Fpassword\x0F")
             csmsg("")
             csmsg("Sets the password used to drop the channel.")
 
         elif args == 'set desc':
-            csmsg(
-                "Syntax: \x02SET \x1Fchannel\x0F \x02DESC \x1Fdescription\x0F")
+            csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02DESC \x1Fdescription\x0F")
             csmsg("")
             csmsg("Sets the description of the channel, which shows up with")
             csmsg("The \x02LIST\x0F and \x02INFO\x0F commands.")
@@ -642,8 +616,7 @@ if 'command' in dir():
                 "Syntax: \x02SET \x1Fchannel\x0F \x02ENTRYMSG \x1Fmessage\x0F")
             csmsg("")
             csmsg("Sets the message which will be sent via /notice to users")
-            csmsg(
-                "when they enter the channel. If \x02message\x0F is \"\x02off\x0F\" then no")
+            csmsg("when they enter the channel. If \x02message\x0F is \"\x02off\x0F\" then no")
             csmsg("message will be shown.")
 
         elif args == 'set mlock':
@@ -651,8 +624,7 @@ if 'command' in dir():
             csmsg("")
             csmsg("Sets the mode-lock parameter for the channel. ChanServ")
             csmsg("allows you to lock active channel modes to a channel,")
-            csmsg(
-                "even across channel instances. Modes involving sophisticated")
+            csmsg("even across channel instances. Modes involving sophisticated")
             csmsg("parameters (non-list, string, integer or floating point")
             csmsg("values) cannot be locked.")
 
@@ -660,8 +632,7 @@ if 'command' in dir():
             csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02KEEPTOPIC {ON|OFF}\x0F")
             csmsg("")
             csmsg("Enables or disables \x02topic retention\x0F for a channel.")
-            csmsg(
-                "When \x02topic retention\x0F is set, the topic for the channel")
+            csmsg("When \x02topic retention\x0F is set, the topic for the channel")
             csmsg("will be remembered by ChanServ even after the last user")
             csmsg("leaves the channel, and will be restored the next time")
             csmsg("the channel is created.")
@@ -676,18 +647,14 @@ if 'command' in dir():
         elif args == 'set restricted':
             csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02RESTRICTED {ON|OFF}\x0F")
             csmsg("")
-            csmsg(
-                "Enables or disables the \x02restricted access\x0F option for a")
-            csmsg(
-                "channel. When \x02restricted access\x0F is set, users not on")
-            csmsg(
-                "the access list will instead be denied entry to the channel.")
+            csmsg("Enables or disables the \x02restricted access\x0F option for a")
+            csmsg("channel. When \x02restricted access\x0F is set, users not on")
+            csmsg("the access list will instead be denied entry to the channel.")
 
         elif args == 'set secureops':
             csmsg("Syntax: \x02SET \x1Fchannel\x0F \x02SECUREOPS {ON|OFF}\x0F")
             csmsg("")
-            csmsg(
-                "When \x02secure ops\x0F is set, users who are not on the userlist")
+            csmsg("When \x02secure ops\x0F is set, users who are not on the userlist")
             csmsg("will not be allowed chanop status.")
 
         elif args == 'set signkick':
@@ -695,8 +662,7 @@ if 'command' in dir():
             csmsg("")
             csmsg("Enables or disables signed kicks for a channel.")
             csmsg("When \x02SIGNKICK\x0F is set, kicks issued with the")
-            csmsg(
-                "ChanServ \x02KICK\x0F command will have the nick that used the")
+            csmsg("ChanServ \x02KICK\x0F command will have the nick that used the")
             csmsg("command in their reason.")
 
         elif args == 'set topiclock':
@@ -717,23 +683,15 @@ if 'command' in dir():
         elif args == 'enforce':
             csmsg("Syntax: \x02ENFORCE \x1Fchannel\x0F \x02\x1Fwhat\x0F")
             csmsg("")
-            csmsg(
-                "Enforce various channel modes and options. The \x1Fchannel\x0F")
-            csmsg(
-                "option indicates what channel to enforce the modes and options")
-            csmsg(
-                "on. The \x1Fwhat\x0F option indicates what modes and options to")
-            csmsg(
-                "enforce, and can be any of SET, SECUREOPS, RESTRICTED or MODES.")
+            csmsg("Enforce various channel modes and options. The \x1Fchannel\x0F")
+            csmsg("option indicates what channel to enforce the modes and options")
+            csmsg("on. The \x1Fwhat\x0F option indicates what modes and options to")
+            csmsg("enforce, and can be any of SET, SECUREOPS, RESTRICTED or MODES.")
             csmsg("")
-            csmsg(
-                "If \x1Fwhat\x0F is SET, it will enforce SECUREOPS and RESTRICTED")
-            csmsg(
-                "on the users currently in the channel, if they are set. Give")
-            csmsg(
-                "SECUEROPS to enforce the SECUREOPS option, even if it is not")
-            csmsg(
-                "enabled. Use RESTRICTED to enforce the RESTRICTED option, also")
+            csmsg("If \x1Fwhat\x0F is SET, it will enforce SECUREOPS and RESTRICTED")
+            csmsg("on the users currently in the channel, if they are set. Give")
+            csmsg("SECUEROPS to enforce the SECUREOPS option, even if it is not")
+            csmsg("enabled. Use RESTRICTED to enforce the RESTRICTED option, also")
             csmsg("if it is not enabled.")
             csmsg("")
             csmsg("If \x1Fwhat\x0F is MODES, it will enforce any stored modes")
@@ -774,8 +732,7 @@ if 'command' in dir():
             csmsg("The \x02SOP CLEAR\x0F command clears all entries of the")
             csmsg("SOP list.")
             csmsg("")
-            csmsg(
-                "The \x02SOP ADD\x0F, \x02SOP DEL\x0F, \x02SOP LIST\x0F and \x02SOP CLEAR\x0F commands are")
+            csmsg("The \x02SOP ADD\x0F, \x02SOP DEL\x0F, \x02SOP LIST\x0F and \x02SOP CLEAR\x0F commands are")
             csmsg("limited to the channel founder.")
 
         elif args == 'aop':
@@ -784,8 +741,7 @@ if 'command' in dir():
             csmsg("        \x02AOP \x1Fchannel\x0F \x02LIST\x0F")
             csmsg("        \x02AOP \x1Fchannel\x0F \x02CLEAR\x0F")
             csmsg("")
-            csmsg(
-                "Maintains the \x02AOP\x0F (AutoOp) \x02list\x0F for a channel. The AOP")
+            csmsg("Maintains the \x02AOP\x0F (AutoOp) \x02list\x0F for a channel. The AOP")
             csmsg("list gives users the right to be auto-opped on you channel,")
             csmsg("to unban or invite themselves if needed, to have their")
             csmsg("greet message showed on join, and so on.")
@@ -793,8 +749,7 @@ if 'command' in dir():
             csmsg("The \x02AOP ADD\x0F command adds the given nicknamet o the")
             csmsg("AOP list.")
             csmsg("")
-            csmsg(
-                "The \x02AOP DEL\x0F commmand removes the given nick from the")
+            csmsg("The \x02AOP DEL\x0F commmand removes the given nick from the")
             csmsg("AOP list. If  list of entry numbers is given, those")
             csmsg("entries are deleted. (See the example for LIST below.)")
             csmsg("")
@@ -803,8 +758,7 @@ if 'command' in dir():
             csmsg("The \x02AOP CLEAR\x0F command clears all entries of the")
             csmsg("AOP list.")
             csmsg("")
-            csmsg(
-                "The \x02AOP ADD\x0F and \x02AOP DEL\x0F commands are limited to")
+            csmsg("The \x02AOP ADD\x0F and \x02AOP DEL\x0F commands are limited to")
             csmsg("SOP or above, while the \x02AOP CLEAR\x0F command can only")
             csmsg("be used bu the channel founder. However, any use on the")
             csmsg("AOP list may use the \x02AOP LIST\x0F command.")
@@ -815,8 +769,7 @@ if 'command' in dir():
             csmsg("        \x02HOP \x1Fchannel\x0F \x02LIST\x0F")
             csmsg("        \x02HOP \x1Fchannel\x0F \x02CLEAR\x0F")
             csmsg("")
-            csmsg(
-                "Maintains the \x02HOP\x0F (HalfOp) \x02list\x0F for a channel. The HOP")
+            csmsg("Maintains the \x02HOP\x0F (HalfOp) \x02list\x0F for a channel. The HOP")
             csmsg("list gives users the right to be auto-halfopped on your")
             csmsg("channel.")
             csmsg("")
@@ -837,8 +790,7 @@ if 'command' in dir():
             csmsg("        \x02VOP \x1Fchannel\x0F \x02LIST\x0F")
             csmsg("        \x02VOP \x1Fchannel\x0F \x02CLEAR\x0F")
             csmsg("")
-            csmsg(
-                "Maintains the \x02VOP\x0F (VOiced People) \x02list\x0F for a channel.")
+            csmsg("Maintains the \x02VOP\x0F (VOiced People) \x02list\x0F for a channel.")
             csmsg("The VOP list allows users to be auto-voices and to voice")
             csmsg("themselves if they aren't.")
             csmsg("")
@@ -862,8 +814,7 @@ if 'command' in dir():
         elif args == 'deowner':
             csmsg("Syntax: \x02DEOWNER \x1Fchannel\x0F \x02\x1Fnick\x0F")
             csmsg("")
-            csmsg(
-                "Removes owner status from a selected nick on \x02channel\x0F.")
+            csmsg("Removes owner status from a selected nick on \x02channel\x0F.")
             csmsg("Limited to those with founder access on the channel.")
 
         elif args == 'op':
@@ -912,32 +863,24 @@ if 'command' in dir():
         elif args == 'clear':
             csmsg("Syntax: \x02CLEAR \x1Fchannel\x0F \x02\x1Fwhat\x0F")
             csmsg("")
-            csmsg(
-                "Tells ChanServ to clear certain settings on a channel. \x1fwhat\x0F")
+            csmsg("Tells ChanServ to clear certain settings on a channel. \x1fwhat\x0F")
             csmsg("can be any of the following:")
             csmsg("")
-            csmsg(
-                "     MODES    Resets all modes on the channel, leaving only +Rnt")
+            csmsg("     MODES    Resets all modes on the channel, leaving only +Rnt")
             csmsg("              intact.")
             csmsg("     BANS     Clears all bans on the channel.")
             csmsg("     EXCEPTS  Clears all excepts on the channel.")
-            csmsg(
-                "     OPS      Removes channel-operator (mode +o) from all channel")
+            csmsg("     OPS      Removes channel-operator (mode +o) from all channel")
             csmsg("              Operators.")
-            csmsg(
-                "     HOPS     Removes channel half-operator status (mode +h) from")
+            csmsg("     HOPS     Removes channel half-operator status (mode +h) from")
             csmsg("              all channel HalfOps.")
-            csmsg(
-                "     VOICES   Removes \"voice\" status (mode +v) from anyone with")
+            csmsg("     VOICES   Removes \"voice\" status (mode +v) from anyone with")
             csmsg("              that mode set.")
-            csmsg(
-                "     USERS    Removes (kicks) all users from the channel who are")
-            csmsg(
-                "              neither (User-Mode) +Q or authenticated as the")
+            csmsg("     USERS    Removes (kicks) all users from the channel who are")
+            csmsg("              neither (User-Mode) +Q or authenticated as the")
             csmsg("              channel Founder.")
             csmsg("")
-            csmsg(
-                "Limited to IRC Operators and those with Founder access on the")
+            csmsg("Limited to IRC Operators and those with Founder access on the")
             csmsg("channel.")
 
         elif args == 'protect':
@@ -963,8 +906,7 @@ if 'command' in dir():
 
     elif cmd == 'register':
         if not args or len(args.split()) < 3:
-            csmsg(
-                "Syntax: \x02/CHANSERV REGISTER \x1Fchannel\x0F \x02\x1Fpassword\x0F \x02\x1Fdescription\x0F")
+            csmsg("Syntax: \x02/CHANSERV REGISTER \x1Fchannel\x0F \x02\x1Fpassword\x0F \x02\x1Fdescription\x0F")
         elif not 'R' in client.modes:
             csmsg("A registered nickname is required for channel registration.")
         else:
@@ -1002,7 +944,7 @@ if 'command' in dir():
                         t = time.time()
                         db.execute("INSERT INTO %s VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)" % \
 							TABLE, (channel_name, password, description, client.nick, '', '', topic, topic_by, topic_time, t, t,
-                                                                                                                                '', '', '', '', '', '', '', '', '', '', '', '', ''))
+                            '', '', '', '', '', '', '', '', '', '', '', '', ''))
                         db.commit()
                         csmsg("Registered \x02%s\x0F to \x02%s\x0F." %
                               (channel_name, client.nick))
@@ -1143,8 +1085,7 @@ if 'command' in dir():
                                   (option.title(), channel, params.upper()))
                     else:
                         csmsg("Unkown option \x02%s\x0F." % option.upper())
-                        csmsg(
-                            "\x02/CHANSERV HELP SET\x0F for more information.")
+                        csmsg("\x02/CHANSERV HELP SET\x0F for more information.")
             del c
 
     elif cmd == 'enforce':
@@ -1247,10 +1188,8 @@ if 'command' in dir():
                     csmsg("Cleared %s SOP list." % chan)
 
     elif cmd == 'aop':
-        if not args or args.split()[1].lower() not in ['add', 'del', 'list',
-                                                       'clear']:
-            csmsg(
-                "Syntax: \x02AOP \x1Fchannel\x0F \x02{ADD|DEL|LIST|CLEAR} [\x1Fnick\x0F\x02]\x0F")
+        if not args or args.split()[1].lower() not in ['add', 'del', 'list','clear']:
+            csmsg("Syntax: \x02AOP \x1Fchannel\x0F \x02{ADD|DEL|LIST|CLEAR} [\x1Fnick\x0F\x02]\x0F")
             csmsg("\x02/CHANSERV HELP AOP\x0F for more information.")
         else:
             chan, params = args.split(' ', 1)
@@ -1266,8 +1205,7 @@ if 'command' in dir():
                     nick = params[1]
                     db = cache['db']
                     cur = db.cursor()
-                    cur.execute("SELECT * FROM %s WHERE nick='%s'" %
-                                (NS_TABLE, nick))
+                    cur.execute("SELECT * FROM %s WHERE nick='%s'" % (NS_TABLE, nick))
                     r = cur.fetchone()
                     if not r:
                         csmsg(
@@ -1302,8 +1240,7 @@ if 'command' in dir():
     elif cmd == 'hop':
         if not args or args.split()[1].lower() not in ['add', 'del', 'list',
                                                        'clear']:
-            csmsg(
-                "Syntax: \x02HOP \x1Fchannel\x0F \x02{ADD|DEL|LIST|CLEAR} [\x1Fnick\x0F\x02]\x0F")
+            csmsg("Syntax: \x02HOP \x1Fchannel\x0F \x02{ADD|DEL|LIST|CLEAR} [\x1Fnick\x0F\x02]\x0F")
             csmsg("\x02/CHANSERV HELP HOP\x0F for more information.")
         else:
             chan, params = args.split(' ', 1)
@@ -1332,8 +1269,7 @@ if 'command' in dir():
                               (nick, chan))
                     elif params[0].lower() == 'del':
                         ops = c['operators']
-                        if nick not in ops or (nick in ops and ops[nick] !=
-                                               'h'):
+                        if nick not in ops or (nick in ops and ops[nick] != 'h'):
                             csmsg("\x02%s\x0F is not in the HOP list for %s." %
                                   (nick, chan))
                         else:
@@ -1452,8 +1388,7 @@ if 'command' in dir():
                     b = c['bans']
                     m = re_to_irc(mask, False)
                     if not m in b:
-                        csmsg("\x02%s\x0F isn't banned from %s." %
-                              (mask, chan))
+                        csmsg("\x02%s\x0F isn't banned from %s." % (mask, chan))
                     else:
                         del c['bans:%s' % m]
                         csmsg("Unbanned \x02%s\x0F from %s." % (mask, chan))
@@ -1476,8 +1411,8 @@ if 'command' in dir():
             else:
                 if what == 'modes':
                     modes = channel.modes.copy()
-                    [csmode(channel, '-' + mode) for mode in modes if mode not
-                     in ['n', 't', 'R', 'e', 'b', 'v', 'h', 'o', 'a', 'q']]
+                    [csmode(channel, '-' + mode) for mode in modes if mode not \
+                        in ['n', 't', 'R', 'e', 'b', 'v', 'h', 'o', 'a', 'q']]
                     csmsg("Modes reset for \x02%s\x0F." % chan)
                 elif what == 'bans':
                     # Uncomment the following line if you would like this command
@@ -1684,8 +1619,7 @@ if 'command' in dir():
                 user = [u for u in channel.clients if u.nick == nick]
                 if user:
                     csmode(channel, '-o', nick)
-                    csmsg("Removed operator status from %s in %s." %
-                          (nick, chan))
+                    csmsg("Removed operator status from %s in %s." % (nick, chan))
                 else:
                     csmsg("%s is not on %s." % (nick, chan))
 
@@ -1713,8 +1647,7 @@ if 'command' in dir():
                 user = [u for u in channel.clients if u.nick == nick]
                 if user:
                     csmode(channel, '+h', nick)
-                    csmsg("Half Operator status given to %s in %s." %
-                          (nick, chan))
+                    csmsg("Half Operator status given to %s in %s." % (nick, chan))
                 else:
                     csmsg("%s is not on %s." % (nick, chan))
 
@@ -1742,8 +1675,7 @@ if 'command' in dir():
                 user = [u for u in channel.clients if u.nick == nick]
                 if user:
                     csmode(channel, '-h', nick)
-                    csmsg("Removed half operator status from %s in %s." %
-                          (nick, chan))
+                    csmsg("Removed half operator status from %s in %s." % (nick, chan))
                 else:
                     csmsg("%s is not on %s." % (nick, chan))
 

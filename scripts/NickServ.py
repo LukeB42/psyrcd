@@ -169,11 +169,9 @@ if 'command' in dir():
             nsmsg("     IDENTIFY   Identify yourself with your password")
             nsmsg("     PASSWORD   Set your nickname password")
             nsmsg("     DROP       Cancel the registration of a nickname")
-            nsmsg(
-                "     GHOST      Disconnects a \"ghost\" IRC session using your nick")
+            nsmsg("     GHOST      Disconnects a \"ghost\" IRC session using your nick")
             nsmsg("     INFO       Displays information about a given nickname")
-            nsmsg(
-                "     LIST       List all registered nicknames that match a given pattern")
+            nsmsg("     LIST       List all registered nicknames that match a given pattern")
             nsmsg("     LOGOUT     Reverses the effect of the IDENTIFY command")
             if client.oper:
                 nsmsg("     EXPIRE     Manually purge expired registrations")
@@ -182,8 +180,7 @@ if 'command' in dir():
             nsmsg("the automatic expiration, i.e. they will be deleted")
             nsmsg("after %i days if not used." % MAX_DAYS_UNPRESENT)
             nsmsg("")
-            nsmsg(
-                "\x02NOTICE:\x0F This service is intended to provide a way for")
+            nsmsg("\x02NOTICE:\x0F This service is intended to provide a way for")
             nsmsg("IRC users to ensure their identity is not compromised.")
             nsmsg("It is \x02NOT\x0F intended to facilitate \"stealing\" of")
             nsmsg("nicknames or other malicious actions. Abuse of NickServ")
@@ -236,12 +233,10 @@ if 'command' in dir():
             nsmsg("     \x02LIST *!user@foo.com\x0F")
             nsmsg("         Lists all nicks owned by \x02user@foo.com\x0F.")
             nsmsg("    \x02LIST *Bot*!*@*\x0F")
-            nsmsg(
-                "        Lists all registered nicks with \x02Bot\x0F in their")
+            nsmsg("        Lists all registered nicks with \x02Bot\x0F in their")
             nsmsg("         names (case insensitive).")
             nsmsg("     \x02LIST *!*@*.bar.org\x0F")
-            nsmsg(
-                "         Lists all nicks owned by users in the \x02bar.org\x0F")
+            nsmsg("         Lists all nicks owned by users in the \x02bar.org\x0F")
             nsmsg("         domain.")
 
         elif args == 'info':
@@ -254,11 +249,9 @@ if 'command' in dir():
         elif args == 'logout':
             nsmsg("Syntax: \x02LOGOUT\x0F")
             nsmsg("")
-            nsmsg(
-                "This reverses the effect of the \x02IDENTIFY\x0F command, i.e.")
+            nsmsg("This reverses the effect of the \x02IDENTIFY\x0F command, i.e.")
             nsmsg("make you not recognized as the real owner of the nick")
-            nsmsg(
-                "anymore. Note, however, that you won't be asked to reidentify")
+            nsmsg("anymore. Note, however, that you won't be asked to reidentify")
             nsmsg("yourself.")
 
         elif args == 'password':
@@ -270,8 +263,7 @@ if 'command' in dir():
             nsmsg("speak to an IRC Operator.")
             if client.oper:
                 nsmsg("")
-                nsmsg(
-                    "Syntax: \x02PASSWORD \x1Fnick\x0F \x02\x1Fnew-password\x0F")
+                nsmsg("Syntax: \x02PASSWORD \x1Fnick\x0F \x02\x1Fnew-password\x0F")
                 nsmsg("IRC Operators may redefine passwords at will.")
 
         elif args == 'expire' and client.oper:
@@ -279,11 +271,9 @@ if 'command' in dir():
             nsmsg("")
             nsmsg("This iterates through every record in the database")
             nsmsg("and purges records that haven't been used for over")
-            nsmsg("MAX_DAYS_UNPRESENT days, which is currently set to \x02%i\x0F."
-                  % MAX_DAYS_UNPRESENT)
+            nsmsg("MAX_DAYS_UNPRESENT days, which is currently set to \x02%i\x0F." % MAX_DAYS_UNPRESENT)
             nsmsg("")
-            nsmsg(
-                "Expiration of a nickname is checked when the \x02IDENTIFY\x0F")
+            nsmsg("Expiration of a nickname is checked when the \x02IDENTIFY\x0F")
             nsmsg("command is used, however, nicknames may never be claimed")
             nsmsg("at all. This command may take a few seconds to work over ")
             nsmsg("large databases.")
@@ -338,8 +328,8 @@ if 'command' in dir():
                               (client.nick, client.client_ident(True)))
                         if 'R' in client.supported_modes:
                             client.modes['R'] = 1
-                            client.broadcast(client.nick, ':%s MODE %s +R' %
-                                             (NS_IDENT, client.nick))
+                            client.broadcast(client.nick, ':%s MODE %s +R' % \
+                                (NS_IDENT, client.nick))
                 del db, c, r
 
     elif cmd == 'identify':
