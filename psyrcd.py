@@ -6,63 +6,18 @@
 # Gratitude to Ferry Boender for starting this off
 # http://www.electricmonk.nl/log/2009/09/14/hircd-minimal-irc-server-in-python/
 
-# Permission is hereby granted, free of charge, to any person
-# obtaining a copy of this software and associated documentation
-# files (the "Software"), to deal in the Software without
-# restriction, including without limitation the rights to use,
-# copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the
-# Software is furnished to do so, subject to the following
-# conditions:
-# 
-# The above copyright notice and this permission notice shall be
-# included in all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-# OTHER DEALINGS IN THE SOFTWARE.
-
-# Todo:
-#   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
-#   - Implement /notice and possibly /userhost
-#   - Implement all user and channel modes.
-#   - Fix TODO comments.
-# Scripting:
-#   - /operserv scripts                      Lists all loaded scripts. Indicates file modifications if --debug isn't being used.
-#   - /operserv scripts list                 Lists all available scripts.
-#   - /operserv scripts load scriptname      Loads the specified file as a code object using a specific namespace, where a variable called 'init' is set to True.
-#   - /operserv scripts unload scriptname    Unloads the specified file by executing its code object with 'init' set to False.
-#                                            This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
-#
-#   - namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}
-#   - Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
-#   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list or whatever structure your script manually sets.
-#   - The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
-#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: /mode #channel +numpy:123,456,789,0
-#   - /mode #channel -numpy: would clear the mode completely, rather than removing individual parameters and then the mode itself.
-#   - init and unload ought to cause the script to create or remove structures on channels and clients.
-#   - Modes on load are automatically appended to the necessary supported_modes dictionary and removed on unload.
-#   - Mode scripts can check for the presence of a variable named "display" in their namespace in order to return custom messages in a variable named "output".
-#   - @scripts decorator cycles through modes and match to server.scripts.u/cmodes.keys().
-#   - Every time a channel name is the target of a command its modes are checked against IRCServer.Scripts.cmodes.
-#   - Decorator on handle_* will send `self,channel,func,params` into your scripts default namespace.
-#   - For example: /mode #channel +lang:en
-#   - channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
-# The Future:
-#   - /operserv connect server:port key; generate key at runtime.
-#   - Connect and negotiate as a server, hand connection off to dedicated class.
-#   - Someone is going to have to disable their scripts.
-#   - Determine the most elegant way of performing breadth-first search with as little stateful info as possible
-#   - decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
-# Known Errors:
-#   - Windows doesn't have fork(). Run in the foreground or Cygwin.
-
-import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
+import os
+import re
+import pwd
+import ssl
+import sys
+import time
+import socket
+import select
+import logging
+import hashlib
+import optparse
+import SocketServer
 
 NET_NAME = "psyrcd-dev"
 SRV_VERSION = "psyrcd-0.14"
@@ -2560,7 +2515,7 @@ class color:
         self.end = ''
 
 
-if __name__ == "__main__":
+def main():
     prog = "psyrcd"
     description = "The %sPsybernetics%s IRC Server." % (color.orange, color.end)
     epilog = "Using the %s-k%s and %s-c%s options together enables SSL and plaintext connections over the same port." % \
@@ -2692,6 +2647,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         logging.info("Please use --run-as")
         raise SystemExit
 
+    global OPER_PASSWORD
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512',
                                     str(os.urandom(20))).hexdigest()[:20]
@@ -2757,3 +2713,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
                 ircserver.scripts.unload(script[script.rfind(os.sep) + 1:])
         logging.info('Bye.')
         raise SystemExit
+
+if __name__ == "__main__":
+    main()
