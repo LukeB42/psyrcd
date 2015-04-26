@@ -1,13 +1,11 @@
-#Todo:
----
+#Todo
 
 Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
 Implement /notice and possibly /userhost
 Implement all user and channel modes.
 Fix TODO comments.
 
-#Scripting:
----
+#Scripting
 
 /operserv scripts                      Lists all loaded scripts. Indicates file modifications if --debug isn't being used.
 
@@ -47,15 +45,13 @@ For example: /mode #channel +lang:en
 
 channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 
-#The Future:
----
+#The Future
 /operserv connect server:port key; generate key at runtime.
 Connect and negotiate as a server, hand connection off to dedicated class.
 Someone is going to have to disable their scripts.
 Determine the most elegant way of performing breadth-first search with as little stateful info as possible
 decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
 
-#Known Errors:
----
+#Known Errors
 Windows doesn't have fork(). Run in the foreground or Cygwin.
 
