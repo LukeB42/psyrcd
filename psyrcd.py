@@ -64,75 +64,76 @@
 
 import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
 
-NET_NAME = "psyrcd-dev"
-SRV_VERSION = "psyrcd-0.14"
-SRV_DOMAIN = "irc.psybernetics.org.uk"
+NET_NAME        = "psyrcd-dev"
+SRV_VERSION     = "psyrcd-0.14"
+SRV_DOMAIN      = "irc.psybernetics.org.uk"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
-SRV_WELCOME = "Welcome to %s" % NET_NAME
-SRV_CREATED = time.asctime()
+SRV_WELCOME     = "Welcome to %s" % NET_NAME
+SRV_CREATED     = time.asctime()
 
-MAX_CLIENTS = 300  # User connections to be permitted before we start denying new connections.
-MAX_IDLE = 300  # Time in seconds a user may be caught being idle for.
-MAX_NICKLEN = 12  # Characters per available nickname.
-MAX_CHANNELS = 200  # Channels per server on the network.
-MAX_TOPICLEN = 512  # Characters per channel topic.
-MAX_TICKS = [
-    0, 15
-]  # select()s through active connections before we start pruning for ping timeouts
+MAX_CLIENTS   = 300     # User connections to be permitted before we start denying new connections.
+MAX_IDLE      = 300     # Time in seconds a user may be caught being idle for.
+MAX_NICKLEN   = 12      # Characters per available nickname.
+MAX_CHANNELS  = 200     # Channels per server on the network.
+MAX_TOPICLEN  = 512     # Characters per channel topic.
+MAX_TICKS     = [0,15]  # select()s through active connections before we start pruning for ping timeouts
+
+OPER_USERNAME = os.environ['USER']
+OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
+                        # openssl rand -base64 32 | ./psyrcd --preload -f
 
 OPER_USERNAME = os.environ['USER']
 OPER_PASSWORD = True  # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
-# openssl rand -base64 32 | ./psyrcd --preload -f
+                      # openssl rand -base64 32 | ./psyrcd --preload -f
 
-RPL_WELCOME = '001'
-RPL_YOURHOST = '002'
-RPL_CREATED = '003'
-RPL_MYINFO = '004'
-RPL_ISUPPORT = '005'
-RPL_UMODEIS = '221'
-RPL_LUSEROP = '252'
-RPL_LUSERCHANNELS = '254'
-RPL_LUSERME = '255'
-RPL_WHOISUSER = '311'
-RPL_WHOISSERVER = '312'
-RPL_WHOISOPERATOR = '313'
-RPL_ENDOFWHO = '315'
-RPL_WHOISIDLE = '317'
-RPL_ENDOFWHOIS = '318'
-RPL_WHOISCHANNELS = '319'
-RPL_WHOISSPECIAL = '320'
-RPL_LISTSTART = '321'
-RPL_LIST = '322'
-RPL_LISTEND = '323'
-RPL_TOPIC = '332'
-RPL_TOPICWHOTIME = '333'
-RPL_WHOISBOT = '335'
-RPL_INVITING = '341'
-RPL_EXCEPTLIST = '348'
-RPL_ENDOFEXCEPTLIST = '349'
-RPL_WHOREPLY = '352'
-RPL_BANLIST = '367'
-RPL_ENDOFBANLIST = '368'
-RPL_HOSTHIDDEN = '396'
-ERR_NOSUCHNICK = '401'
-ERR_NOSUCHCHANNEL = '403'
-ERR_CANNOTSENDTOCHAN = '404'
-ERR_UNKNOWNCOMMAND = '421'
-ERR_ERRONEUSNICKNAME = '432'
-ERR_NICKNAMEINUSE = '433'
-ERR_NOTONCHANNEL = '442'
-ERR_NOTIMPLEMENTED = '449'
-ERR_NOTFORHALFOPS = '460'
-ERR_NEEDMOREPARAMS = '461'
-ERR_UNKNOWNMODE = '472'
-ERR_INVITEONLYCHAN = '473'
-ERR_BANNEDFROMCHAN = '474'
-ERR_BADCHANNELKEY = '475'
+RPL_WELCOME           = '001'
+RPL_YOURHOST          = '002'
+RPL_CREATED           = '003'
+RPL_MYINFO            = '004'
+RPL_ISUPPORT          = '005'
+RPL_UMODEIS           = '221'
+RPL_LUSEROP           = '252'
+RPL_LUSERCHANNELS     = '254'
+RPL_LUSERME           = '255'
+RPL_WHOISUSER         = '311'
+RPL_WHOISSERVER       = '312'
+RPL_WHOISOPERATOR     = '313'
+RPL_ENDOFWHO          = '315'
+RPL_WHOISIDLE         = '317'
+RPL_ENDOFWHOIS        = '318'
+RPL_WHOISCHANNELS     = '319'
+RPL_WHOISSPECIAL      = '320'
+RPL_LISTSTART         = '321'
+RPL_LIST              = '322'
+RPL_LISTEND           = '323'
+RPL_TOPIC             = '332'
+RPL_TOPICWHOTIME      = '333'
+RPL_WHOISBOT          = '335'
+RPL_INVITING          = '341'
+RPL_EXCEPTLIST        = '348'
+RPL_ENDOFEXCEPTLIST   = '349'
+RPL_WHOREPLY          = '352'
+RPL_BANLIST           = '367'
+RPL_ENDOFBANLIST      = '368'
+RPL_HOSTHIDDEN        = '396'
+ERR_NOSUCHNICK        = '401'
+ERR_NOSUCHCHANNEL     = '403'
+ERR_CANNOTSENDTOCHAN  = '404'
+ERR_UNKNOWNCOMMAND    = '421'
+ERR_ERRONEUSNICKNAME  = '432'
+ERR_NICKNAMEINUSE     = '433'
+ERR_NOTONCHANNEL      = '442'
+ERR_NOTIMPLEMENTED    = '449'
+ERR_NOTFORHALFOPS     = '460'
+ERR_NEEDMOREPARAMS    = '461'
+ERR_UNKNOWNMODE       = '472'
+ERR_INVITEONLYCHAN    = '473'
+ERR_BANNEDFROMCHAN    = '474'
+ERR_BADCHANNELKEY     = '475'
 ERR_CHANOPPRIVSNEEDED = '482'
-ERR_VOICENEEDED = '489'
+ERR_VOICENEEDED       = '489'
 ERR_CHANOWNPRIVNEEDED = '499'
-RPL_WHOISSECURE = '671'
-
+RPL_WHOISSECURE       = '671'
 
 class IRCError(Exception):
     """
@@ -468,42 +469,39 @@ class IRCClient(SocketServer.BaseRequestHandler):
     """
 
     def __init__(self, request, client_address, server):
-        self.connected_at = str(time.time())[:10]
-        self.last_activity = 0  # Subtract this from time.time() to determine idle time.
-        self.user = None  # The bit before the @
-        self.host = client_address  # Client's hostname / ip.
-        self.rhost = lookup(self.host[0])  # This users rdns. May return None.
-        self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(
-            self.host[0])]  # Keeps the hostmask unique which keeps bans functioning
-        self.realname = None  # Client's real name
-        self.nick = None  # Client's currently registered nickname
-        self.vhost = None  # Alternative hostmask for WHOIS requests
-        self.send_queue = []  # Messages to send to client (strings)
-        self.channels = {}  # Channels the client is in
-        self.modes = {'x': 1}  # Usermodes set on the client
-        self.oper = None  # Assign an IRCOperator object if user opers up
-        self.supported_modes = {
-            # Uppercase modes are oper-only
-            'A': "IRC Administrator.",  #        'b':"Bot.",
-            'D': "Deaf. User does not recieve channel messages.",
-            'H': "Hide ircop line in /whois.",
-            #        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
-            #        'N':"Network Administrator.",
-            'O': "IRC Operator.",
-            #        'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
-            #        'p':"Hidden Channels. Hides the channels line in the users /whois",
-            'Q': "Kick Block. Cannot be /kicked from channels.",
-            'S':
-            "See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
-            'W': "Wallops. Recieve connect, disconnect and traceback notices.",
-            #        'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
-            'x':
-            "Masked hostname. Hides the users hostname or IP address from other users.",
-            'Z': "SSL connection."
+        self.connected_at = str(time.time())[:10] 
+        self.last_activity = 0                    # Subtract this from time.time() to determine idle time.
+        self.user = None                          # The bit before the @
+        self.host = client_address                # Client's hostname / ip.
+        self.rhost = lookup(self.host[0])         # This users rdns. May return None.
+        self.hostmask = hashlib.new('sha512',     # Unique hostmask to keep bans functioning.
+                                    self.host[0]).hexdigest()[:len(self.host[0])]
+        self.realname = None                      # Client's real name
+        self.nick = None                          # Client's currently registered nickname
+        self.vhost = None                         # Alternative hostmask for WHOIS requests
+        self.send_queue = []                      # Messages to send to client (strings)
+        self.channels = {}                        # Channels the client is in
+        self.modes = {'x':1}                      # Usermodes set on the client
+        self.oper = None                          # Assign an IRCOperator object if user opers up
+        self.supported_modes = {                  # Uppercase modes are oper-only
+        'A':"IRC Administrator.",
+#        'b':"Bot.",
+        'D':"Deaf. User does not recieve channel messages.",
+        'H':"Hide ircop line in /whois.",
+#        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
+#        'N':"Network Administrator.",
+        'O':"IRC Operator.",
+#        'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
+#        'p':"Hidden Channels. Hides the channels line in the users /whois",
+        'Q':"Kick Block. Cannot be /kicked from channels.",
+        'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
+        'W':"Wallops. Recieve connect, disconnect and traceback notices.",
+#        'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
+        'x':"Masked hostname. Hides the users hostname or IP address from other users.",
+        'Z':"SSL connection."
         }
 
-        SocketServer.BaseRequestHandler.__init__(self, request, client_address,
-                                                 server)
+        SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
 
     def handle(self):
         """
@@ -639,7 +637,6 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #        self.request.close()
 
 #    @links
-
     def broadcast(self, target, message):
         """
         Handle message dispatch to clients.
@@ -2121,35 +2118,26 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 (self.__class__.__name__, self.nick, self.user, self.host[0],
                  self.realname, hex(id(self))))
 
-
 class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
     def __init__(self, server_address, RequestHandlerClass):
         self.servername = SRV_DOMAIN
-        self.channels = {
-        }  # Existing channels (IRCChannel instances) by channel name
-        self.clients = {
-        }  # Connected clients (IRCClient instances) by nickname
-        self.opers = {
-        }  # Authenticated IRCops (IRCOperator instances) by nickname
-        self.scripts = Scripts(
-        )  # The scripts object we attach external execution routines to.
-        self.link_key = None  # Oper-defined pass for accepting connections as server links.
-        self.links = {
-        }  # Other servers (IRCServerLink instances) by domain or address
-        self.lines = {
-            # Bans we check on client connect, against...
-            'K': {},  # A userhost, locally
-            #                      'G':{},    # A userhost, network-wide
-            'Z': {},  # An IP range, locally
-            #                      'GZ':{}    # An IP range, network-wide 
-        }  # An example of the syntax is: lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
-        SocketServer.TCPServer.__init__(self, server_address,
-                                        RequestHandlerClass)
+        self.channels = {}       # Existing channels (IRCChannel instances) by channel name
+        self.clients = {}        # Connected clients (IRCClient instances) by nickname
+        self.opers = {}          # Authenticated IRCops (IRCOperator instances) by nickname
+        self.scripts = Scripts() # The scripts object we attach external execution routines to.
+        self.link_key = None     # Oper-defined pass for accepting connections as server links.
+        self.links = {}          # Other servers (IRCServerLink instances) by domain or address
+        self.lines = {           # Bans we check on client connect, against...
+                      'K':{},    # A userhost, locally
+#                      'G':{},    # A userhost, network-wide
+                      'Z':{},    # An IP range, locally
+#                      'GZ':{}    # An IP range, network-wide 
+                     }           # An example of the syntax is: lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
+        SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
         self.scripts.server = self
-
 
 class IRCServerLink(object):
     def __init__(self, target, key):
@@ -2572,71 +2560,22 @@ if __name__ == "__main__":
                                    epilog=epilog)
     parser.set_usage(sys.argv[0] + " -f --preload --debug")
 
-    parser.add_option("--start",
-                      dest="start",
-                      action="store_true",
-                      default=True,
-                      help="(default)")
-    parser.add_option("--stop",
-                      dest="stop",
-                      action="store_true",
-                      default=False)
-    parser.add_option("--restart",
-                      dest="restart",
-                      action="store_true",
-                      default=False)
-    parser.add_option("--pidfile",
-                      dest="pidfile",
-                      action="store",
-                      default='psyrcd.pid')
-    parser.add_option("--logfile",
-                      dest="logfile",
-                      action="store",
-                      default=None)
-    parser.add_option("-a", "--address",
-                      dest="listen_address",
-                      action="store",
-                      default='0.0.0.0')
-    parser.add_option("-p", "--port",
-                      dest="listen_port",
-                      action="store",
-                      default='6667')
-    parser.add_option("-f", "--foreground",
-                      dest="foreground",
-                      action="store_true")
-    parser.add_option("--run-as",
-                      dest="run_as",
-                      action="store",
-                      default=None,
-                      help="(defaults to the invoking user)")
-    parser.add_option("--scripts-dir",
-                      dest="scripts_dir",
-                      action="store",
-                      default='scripts',
-                      help="(defaults to ./scripts/)")
-    parser.add_option("--preload",
-                      dest="preload",
-                      action="store_true",
-                      default=False,
-                      help="Preload all available scripts.")
-    parser.add_option("--debug",
-                      dest="debug",
-                      action="store_true",
-                      default=False,
-                      help="Sets read_on_exec to True for live development.")
-    parser.add_option("-k", "--key",
-                      dest="ssl_key",
-                      action="store",
-                      default=None)
-    parser.add_option("-c", "--cert",
-                      dest="ssl_cert",
-                      action="store",
-                      default=None)
-    parser.add_option("--ssl-help",
-                      dest="ssl_help",
-                      action="store_true",
-                      default=False)
-    #    parser.add_option("--link-help", dest="link_help",action="store_true",default=False)
+    parser.add_option("--start", dest="start", action="store_true", default=True, help="(default)")
+    parser.add_option("--stop", dest="stop", action="store_true", default=False)
+    parser.add_option("--restart", dest="restart", action="store_true", default=False)
+    parser.add_option("--pidfile", dest="pidfile", action="store", default='psyrcd.pid')
+    parser.add_option("--logfile", dest="logfile", action="store", default=None)
+    parser.add_option("-a", "--address", dest="listen_address", action="store", default='0.0.0.0')
+    parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
+    parser.add_option("-f", "--foreground", dest="foreground", action="store_true")
+    parser.add_option("--run-as", dest="run_as",action="store", default=None, help="(defaults to the invoking user)")
+    parser.add_option("--scripts-dir", dest="scripts_dir",action="store", default='scripts', help="(defaults to ./scripts/)")
+    parser.add_option("--preload", dest="preload", action="store_true",default=False, help="Preload all available scripts.")
+    parser.add_option("--debug", dest="debug", action="store_true",default=False, help="Sets read_on_exec to True for live development.")
+    parser.add_option("-k", "--key", dest="ssl_key",action="store", default=None)
+    parser.add_option("-c", "--cert", dest="ssl_cert",action="store", default=None)
+    parser.add_option("--ssl-help", dest="ssl_help",action="store_true",default=False)
+#    parser.add_option("--link-help", dest="link_help",action="store_true",default=False)
     (options, args) = parser.parse_args()
 
     if options.ssl_help:
