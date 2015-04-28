@@ -82,10 +82,6 @@ OPER_USERNAME = os.environ.get('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
                         # openssl rand -base64 32 | ./psyrcd --preload -f
 
-OPER_USERNAME = os.environ['USER']
-OPER_PASSWORD = True  # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
-                      # openssl rand -base64 32 | ./psyrcd --preload -f
-
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
 RPL_CREATED           = '003'
