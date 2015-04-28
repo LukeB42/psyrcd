@@ -78,7 +78,7 @@ MAX_CHANNELS  = 200     # Channels per server on the network.
 MAX_TOPICLEN  = 512     # Characters per channel topic.
 MAX_TICKS     = [0,15]  # select()s through active connections before we start pruning for ping timeouts
 
-OPER_USERNAME = os.environ['USER']
+OPER_USERNAME = os.environ('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
                         # openssl rand -base64 32 | ./psyrcd --preload -f
 
@@ -2648,6 +2648,8 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
                       (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
 
     if options.run_as:
+        if not OPER_USERNAME:
+            OPER_USERNAME = options.run_as
         try:
             uid = pwd.getpwnam(options.run_as)[2]
             os.setuid(uid)

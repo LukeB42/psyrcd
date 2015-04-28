@@ -1,0 +1,31 @@
+#! /bin/sh
+# /etc/init.d/psyrcd
+# Sys-V init script for psyrcd, the Psybernetics IRC server.
+# Luke Brooks http://psybernetics.org.uk/ 2015
+#
+
+BASEDIR=/srv/psyrcd
+
+USER=luke
+SCRIPTS=scripts/
+PIDFILE=$BASEDIR/pid
+LOGFILE=/var/log/psyrcd/ircd.log
+
+# Carry out specific functions when asked to by the system
+case "$1" in
+  start)
+    echo "Starting psyrcd"
+    echo q|$BASEDIR/psyrcd.py --run-as=$USER --logfile=$LOGFILE --pidfile=$PIDFILE --scripts-dir=$BASEDIR/$SCRIPTS --preload
+    ;;
+  stop)
+    echo "Stopping psyrcd"
+    $BASEDIR/psyrcd.py --stop --pidfile=$PIDFILE
+    ;;
+  *)
+    echo "Usage: /etc/init.d/psyrcd {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0
+
