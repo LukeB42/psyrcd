@@ -1,11 +1,12 @@
-#! /bin/sh
+#!/bin/sh
 # /etc/init.d/psyrcd
-# Sys-V init script for psyrcd, the Psybernetics IRC server.
-# Luke Brooks http://psybernetics.org.uk/ 2015
 #
-
+# Sys-V init script for psyrcd, the Psybernetics IRC server.
+# Luke Brooks (luke@psybernetics.org.uk)
+#
 # You generally want to fill out the username below
-# and probably place this psyrcd directory in /srv
+# and probably place this psyrcd directory in /srv.
+# Make sure your log directory is owned by your $USER.
 
 BASEDIR=/srv/psyrcd
 
