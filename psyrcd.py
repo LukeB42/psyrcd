@@ -2581,6 +2581,22 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
 (color.blue, color.end, color.orange, color.end, color.blue, color.end, color.orange, color.end, color.orange, color.end)
         raise SystemExit
 
+    if (pwd.getpwuid(os.getuid())[2] == 0) and (options.run_as == None):
+        logging.info("Running as root is not permitted.")
+        logging.info("Please use --run-as")
+        raise SystemExit
+
+    if options.run_as:
+        if not OPER_USERNAME:
+            OPER_USERNAME = options.run_as
+        try:
+            uid = pwd.getpwnam(options.run_as)[2]
+            os.setuid(uid)
+            logging.info("Now running as %s." % options.run_as)
+        except:
+            logging.info("Couldn't switch to user %s" % options.run_as)
+            raise SystemExit
+
     if options.logfile:
         logfile = os.path.join(os.path.realpath(os.path.dirname(sys.argv[0])),
                                options.logfile)
@@ -2621,22 +2637,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         console.setFormatter(formatter)
         console.setLevel(logging.DEBUG)
         logging.getLogger('').addHandler(console)
-
-    if (pwd.getpwuid(os.getuid())[2] == 0) and (options.run_as == None):
-        logging.info("Running as root is not permitted.")
-        logging.info("Please use --run-as")
-        raise SystemExit
-
-    if options.run_as:
-        if not OPER_USERNAME:
-            OPER_USERNAME = options.run_as
-        try:
-            uid = pwd.getpwnam(options.run_as)[2]
-            os.setuid(uid)
-            logging.info("Now running as %s." % options.run_as)
-        except:
-            logging.info("Couldn't switch to user %s" % options.run_as)
-            raise SystemExit
 
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512',
