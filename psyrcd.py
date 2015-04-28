@@ -2627,6 +2627,17 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         logging.info("Please use --run-as")
         raise SystemExit
 
+    if options.run_as:
+        if not OPER_USERNAME:
+            OPER_USERNAME = options.run_as
+        try:
+            uid = pwd.getpwnam(options.run_as)[2]
+            os.setuid(uid)
+            logging.info("Now running as %s." % options.run_as)
+        except:
+            logging.info("Couldn't switch to user %s" % options.run_as)
+            raise SystemExit
+
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512',
                                     str(os.urandom(20))).hexdigest()[:20]
@@ -2642,17 +2653,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
     else:
         logging.debug("Netadmin login: %s/oper %s %s%s" %
                       (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
-
-    if options.run_as:
-        if not OPER_USERNAME:
-            OPER_USERNAME = options.run_as
-        try:
-            uid = pwd.getpwnam(options.run_as)[2]
-            os.setuid(uid)
-            logging.info("Now running as %s." % options.run_as)
-        except:
-            logging.info("Couldn't switch to user %s" % options.run_as)
-            raise SystemExit
 
     if options.ssl_cert and options.ssl_key:
         logging.info("SSL Enabled.")

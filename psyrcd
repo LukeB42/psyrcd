@@ -4,9 +4,12 @@
 # Luke Brooks http://psybernetics.org.uk/ 2015
 #
 
+# You generally want to fill out the username below
+# and probably place this psyrcd directory in /srv
+
 BASEDIR=/srv/psyrcd
 
-USER=luke
+USER=
 SCRIPTS=scripts/
 PIDFILE=$BASEDIR/pid
 LOGFILE=/var/log/psyrcd/ircd.log
