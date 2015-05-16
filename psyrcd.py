@@ -1009,8 +1009,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     if 'r' in channel.modes and not self.oper:
                         nicks = [channel.supported_modes['r'].split()[0]]
                     else:
-                        nicks = [client.nick for client in channel.clients]
                         tmp = []
+                        nicks = [client.nick for client in channel.clients]
                         # Find the highest channel op status of each user
                         # without removing any multiple statuses.
                         if 'g' not in channel.modes or self.oper:
@@ -1019,54 +1019,36 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             o = [i for i in channel.modes['o'] if i in nicks]
                             a = [i for i in channel.modes['a'] if i in nicks]
                             q = [i for i in channel.modes['q'] if i in nicks]
-                            for i in v:
-                                if i in nicks: nicks.remove(i)
-                            for i in h:
-                                if i in nicks: nicks.remove(i)
-                            for i in o:
-                                if i in nicks: nicks.remove(i)
-                            for i in a:
-                                if i in nicks: nicks.remove(i)
-                            for i in q:
-                                if i in nicks: nicks.remove(i)
-                            for i in q:
-                                q.remove(i)
-                                q.append('~' + i)
-                                tmp.append(i)
-                            for i in a:
-                                a.remove(i)
-                                if not i in tmp:
-                                    tmp.append(i)
-                                    a.append('&' + i)
-                            for i in o:
-                                o.remove(i)
-                                if not i in tmp:
-                                    tmp.append(i)
-                                    o.append('@' + i)
-                            for i in h:
-                                h.remove(i)
-                                if not i in tmp:
-                                    tmp.append(i)
-                                    h.append('%' + i)
-                            for i in v:
-                                v.remove(i)
-                                if not i in tmp:
-                                    tmp.append(i)
-                                    v.append('+' + i)
-                            for i in v:
-                                nicks.append(i)
-                            for i in h:
-                                nicks.append(i)
-                            for i in o:
-                                nicks.append(i)
-                            for i in a:
-                                nicks.append(i)
-                            for i in q:
-                                nicks.append(i)
+                            for nick in q:
+                                if not nick in tmp:
+                                    nicks.remove(nick)
+                                    tmp.append(nick)
+                                    nicks.append('~'+ nick)
+                            for nick in a:
+                                if not nick in tmp:
+                                    nicks.remove(nick)
+                                    tmp.append(nick)
+                                    nicks.append('&'+ nick)
+                            for nick in o:
+                                if not nick in tmp:
+                                    nicks.remove(nick)
+                                    tmp.append(nick)
+                                    nicks.append('@'+ nick)
+                            for nick in h:
+                                if not nick in tmp:
+                                    nicks.remove(nick)
+                                    tmp.append(nick)
+                                    nicks.append('%'+ nick)
+                            for nick in v:
+                                if not nick in tmp:
+                                    nicks.remove(nick)
+                                    tmp.append(nick)
+                                    nicks.append('+'+ nick)
                 self.broadcast(self.nick, ':%s 353 %s = %s :%s' % \
                     (self.server.servername, self.nick, channel.name, ' '.join(nicks)))
                 self.broadcast(self.nick, ':%s 366 %s %s :End of /NAMES list' % \
                     (self.server.servername, self.nick, channel.name))
+                del tmp, nicks, v,h,o,a,q
 
     @scripts
     def handle_mode(self, params):
@@ -1685,7 +1667,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             raise IRCError(ERR_NOSUCHCHANNEL, 'PRIVMSG :%s' % (channel_name))
         if not channel.name in self.channels:
             # The user isn't in the channel.
-            raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' %
+            raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % \
                            (channel.name))
         if topic:
             if self.nick in channel.modes['h'] or self.nick in channel.modes['o'] \
@@ -1717,16 +1699,17 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 # Send message to all clients in all channels user is in, and remove the user from the channels.
                 channel = self.server.channels.get(pchannel.strip())
                 if ('r' not in channel.modes) or (len(channel.clients) == 1):
-                    response = ':%s PART :%s' % (self.client_ident(True),
-                                                 pchannel)
+                    response = ':%s PART :%s' % (self.client_ident(True), pchannel)
                     self.broadcast(channel.name, response)
                 self.channels.pop(pchannel)
                 channel.clients.remove(self)
                 if len(channel.clients) < 1:
                     self.server.channels.pop(channel.name)
+                else:
+                    for op_list in channel.ops:
+                        if self.nick in op_list: op_list.remove(self.nick)
             else:
-                response = ':%s 403 %s :%s' % (self.server.servername,
-                                               pchannel, pchannel)
+                response = ':%s 403 %s :%s' % (self.server.servername, pchannel, pchannel)
                 self.broadcast(self.nick, response)
 
     @scripts
@@ -1734,8 +1717,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         Handle the client breaking off the connection with a QUIT command.
         """
-        response = ':%s QUIT :%s' % (self.client_ident(True),
-                                     params.lstrip(':'))
+        response = ':%s QUIT :%s' % (self.client_ident(True), params.lstrip(':'))
         self.finish(response)
 
     @scripts
@@ -2086,10 +2068,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
         peers = []
         for channel in self.channels.values():
             if self in channel.clients: channel.clients.remove(self)
-            if len(
-                channel.clients) < 1 and channel.name in self.server.channels:
+            if len(channel.clients) < 1 and channel.name in self.server.channels:
                 self.server.channels.pop(channel.name)
             else:
+                for op_list in channel.ops:
+                    if self.nick in op_list: op_list.remove(self.nick)
                 for p in channel.clients:
                     peers.append(p)
         peers = set(peers)
