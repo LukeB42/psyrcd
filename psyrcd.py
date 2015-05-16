@@ -290,7 +290,7 @@ class IRCOperator(object):
         self.client.server.opers[user.nick] = IRCOperator(user)
         oper = self.client.server.opers.get(user.nick)
         if password:
-            oper.password = password
+            oper.passwd = hashlib.sha512(password).hexdigest()
         response = ':%s NOTICE %s :Created an oper account for %s.' % (
             SRV_DOMAIN, self.client.nick, user.nick)
         self.client.broadcast(self.client.nick, response)
@@ -1828,14 +1828,14 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if ' ' in params:
                 modeline = ''
                 opername, password = params.split(' ', 1)
+                password = hashlib.sha512(password).hexdigest()
                 if password == OPER_PASSWORD and opername == OPER_USERNAME:
-                    oper = self.server.opers.setdefault(self.nick,
-                                                        IRCOperator(self))
+                    oper = self.server.opers.setdefault(self.nick, IRCOperator(self))
                     self.modes['A'] = 1
                     modeline = modeline + 'A'
                 else:
                     oper = self.server.opers.get(opername)
-                    if (not oper) or (oper.password != password):
+                    if (not oper) or (not oper.passwd) or (oper.passwd != password):
                         return (':%s NOTICE %s :No O:Lines for your host.' %
                                 (SRV_DOMAIN, self.nick))
                 self.vhost = oper.vhost
@@ -2550,10 +2550,7 @@ if __name__ == "__main__":
     epilog = "Using the %s-k%s and %s-c%s options together enables SSL and plaintext connections over the same port." % \
         (color.blue, color.end, color.blue, color.end)
 
-    parser = optparse.OptionParser(prog=prog,
-                                   version=SRV_VERSION,
-                                   description=description,
-                                   epilog=epilog)
+    parser = optparse.OptionParser(prog=prog, version=SRV_VERSION, description=description, epilog=epilog)
     parser.set_usage(sys.argv[0] + " -f --preload --debug")
 
     parser.add_option("--start", dest="start", action="store_true", default=True, help="(default)")
@@ -2647,12 +2644,15 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
 
     # Detach from console, reparent to init
     if not options.foreground:
-        print "Netadmin login: %s/oper %s %s%s" % (color.green, OPER_USERNAME,
-                                                   OPER_PASSWORD, color.end)
+        print "Netadmin login: %s/oper %s %s%s" % \
+            (color.green, OPER_USERNAME, OPER_PASSWORD, color.end)
         Daemon(options.pidfile)
     else:
-        logging.debug("Netadmin login: %s/oper %s %s%s" %
+        logging.debug("Netadmin login: %s/oper %s %s%s" % \
                       (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
+
+    # Hash the password in memory.
+    OPER_PASSWORD = hashlib.sha512(OPER_PASSWORD).hexdigest()
 
     if options.ssl_cert and options.ssl_key:
         logging.info("SSL Enabled.")
@@ -2669,8 +2669,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         scripts_dir = False
 
     # Start
-    ircserver = IRCServer(
-        (options.listen_address, int(options.listen_port)), IRCClient)
+    ircserver = IRCServer((options.listen_address, int(options.listen_port)), IRCClient)
     try:
         logging.info('Starting psyrcd on %s:%s' %
                      (options.listen_address, options.listen_port))
