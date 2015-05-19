@@ -241,11 +241,11 @@ class IRCOperator(object):
         """
         if 'N' in self.client.modes:
             self.client.server.link_key = params
-            response = ': Set server link key to %s' % params
-			self.client.broadcast(self.client.nick, response)
+            response = ': Server link key set to "%s"' % params
+            self.client.broadcast(self.client.nick, response)
         else:
             response = ': You need to be a network administrator to do that.'
-			self.client.broadcast(self.client.nick, response)
+            self.client.broadcast(self.client.nick, response)
 
     def handle_sconnect(self, params):
         """
@@ -253,7 +253,7 @@ class IRCOperator(object):
         /operserv sconnect hostname[:port] remote-passphrase
         """
         response = ": Work in progress. Brace for impact."
-		self.client.broadcast(self.client.nick, response)
+        self.client.broadcast(self.client.nick, response)
 
     def handle_dump(self, params):
         """
@@ -2115,7 +2115,8 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.opers = {}          # Authenticated IRCops (IRCOperator instances) by nickname
         self.scripts = Scripts() # The scripts object we attach external execution routines to.
         self.link_key = None     # Oper-defined pass for accepting connections as server links.
-        self.links = {}          # Other servers (IRCServerLink instances) by domain or address
+        self.links = {}          # Other servers (IRCServerLink instances) in the form
+                                 # {"domain_name": [shared_object, running_thread]}
         self.lines = {           # Bans we check on client connect, against...
                       'K':{},    # A userhost, locally
 #                      'G':{},    # A userhost, network-wide
@@ -2125,13 +2126,61 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
         self.scripts.server = self
 
+
+
+class Shared(object):
+    """
+     This is a nifty little shared-memory container for server links.
+    """
+    objects = {}
+
 class IRCServerLink(object):
-    def __init__(self, target, key):
-        self.target = target
+    socket = None
+    connected = False
+
+    def __init__(self, host, key):
+        self.host = host
         self.key = key
+
+    def connect(self):
+        self.socket.connect(self.host)
+        self.send("NICK %s" % self.nickname)
+        self.send("USER %(nick)s %(nick)s %(nick)s :%(nick)s" % {'nick':self.nickname})
+
+        while True:
+            buf = self.socket.recv(4096)
+            lines = buf.split("\n")
+            for data in lines:
+                data = str(data).strip()
+                if data == '':
+                    continue
+                print "I<", data
+
+                # server ping/pong?
+                if data.find('PING') != -1:
+                    n = data.split(':')[1]
+                    self.send('PONG :' + n)
+                    if self.connected == False:
+                        self.perform()
+                        self.connected = True
+
+                args = data.split(None, 3)
+                if len(args) != 4:
+                    continue
+                ctx = {}
+                ctx['sender'] = args[0][1:]
+                ctx['type']   = args[1]
+                ctx['target'] = args[2]
+                ctx['msg']  = args[3][1:]
 
 
 class Script(object):
+    """
+     Represents the execution environment for a third-party script.
+     We send custom values into the environment and work with what's left.
+     Scripts can also call methods on objects put into their environment too.
+     It's quite unrestricted, we trust you know what you're doing even if it's insane.
+    """
     def __init__(self, file=None, env={}):
         self.read_on_exec = options.debug
         self.file = file
