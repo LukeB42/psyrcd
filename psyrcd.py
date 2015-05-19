@@ -1,5 +1,5 @@
 #!/usr/bin/env python 
-# *-* coding: UTF-8 *-*
+# _*_ coding: UTF-8 _*_
 
 # psyrcd the Psybernetics IRC server.
 # Based on hircd.py. Modifications have been added for robustness and flexibility.
@@ -239,14 +239,21 @@ class IRCOperator(object):
         Linking is disabled by default until a local passphrase is defined.
         /operserv setkey server-link-passphrase
         """
-        pass
+        if 'N' in self.client.modes:
+            self.client.server.link_key = params
+            response = ': Set server link key to %s' % params
+			self.client.broadcast(self.client.nick, response)
+        else:
+            response = ': You need to be a network administrator to do that.'
+			self.client.broadcast(self.client.nick, response)
 
-    def handle_connect(self, params):
+    def handle_sconnect(self, params):
         """
         Connect to another instance of psyrcd and attempt to synchronise objects.
-        /operserv connect hostname[:port] remote-passphrase
+        /operserv sconnect hostname[:port] remote-passphrase
         """
-        pass
+        response = ": Work in progress. Brace for impact."
+		self.client.broadcast(self.client.nick, response)
 
     def handle_dump(self, params):
         """
@@ -485,7 +492,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         'D':"Deaf. User does not recieve channel messages.",
         'H':"Hide ircop line in /whois.",
 #        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
-#        'N':"Network Administrator.",
+        'N':"Network Administrator.",
         'O':"IRC Operator.",
 #        'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
 #        'p':"Hidden Channels. Hides the channels line in the users /whois",
