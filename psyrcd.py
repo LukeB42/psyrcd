@@ -534,23 +534,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
         if len(self.server.clients) >= MAX_CLIENTS:
             self.request.send(': MAX_CLIENTS exceeded.\n')
             self.request.close()
-            logging.info('Connection refused to %s: MAX_CLIENTS exceeded.' %
-                         self.client_ident())
+            logging.info('Connection refused to %s: MAX_CLIENTS exceeded.' % self.client_ident())
 
         # Check this host isn't K:Lined.
         for line, attributes in self.server.lines['K'].items():
             if re.match(line, self.host[0]):
-                self.request.send(': This host is K:Lined. Reason: %s\n' %
-                                  attributes[2])
+                self.request.send(': This host is K:Lined. Reason: %s\n' % attributes[2])
                 self.request.close()
-                logging.info('Connection refused to %s: K:Lined. (%s)' %
-                             (self.client_ident(), attributes[2]))
+                logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
 
         while True:
             buf = ''
             try:
-                ready_to_read, ready_to_write, in_error = select.select(
-                    [self.request], [], [], 0.1)
+                ready_to_read, ready_to_write, in_error = select.select([self.request], [], [], 0.1)
             except:
                 break
 
@@ -595,35 +591,27 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 handler = script[0]
                                 response = handler(self, command, params)
                             else:
-                                handler = getattr(self, 'handle_%s' %
-                                                  (command.lower()), None)
+                                handler = getattr(self, 'handle_%s' % (command.lower()), None)
                                 if handler: response = handler(params)
                             if not handler:
                                 logging.info(
-                                    'No handler for command: %s. Full line: %s' %
-                                    (command, line))
-                                raise IRCError(ERR_UNKNOWNCOMMAND,
-                                               ':%s Unknown command' %
-                                               command.upper())
+                                    'No handler for command: %s. Full line: %s' % (command, line))
+                                raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
                         except AttributeError, err:
-                            response = ':%s ERROR :%s %s' % (
-                                SRV_DOMAIN, self.client_ident(), err)
+                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
                             self.broadcast('umode:W', response)
                             logging.error(err)
                         except IRCError, err:
-                            response = ':%s %s %s %s' % (SRV_DOMAIN, err.code,
-                                                         self.nick, err.value)
+                            response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
                             logging.error('%s' % (response))
                     # It helps to comment the following exception when debugging
-                        except Exception, err:
-                            response = ':%s ERROR :%s %s' % (
-                                SRV_DOMAIN, self.client_ident(), err)
+                        except Exception, err:                                
+                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
                             self.broadcast('umode:W', response)
                             self.broadcast(self.nick, response)
                             logging.error(err)
                         if response:
-                            logging.debug('to %s: %s' %
-                                          (self.client_ident(), response))
+                            logging.debug('to %s: %s' % (self.client_ident(), response))
                             self.request.send(response + '\r\n')
 
                         # Handle ping timeouts.
@@ -684,13 +672,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
 
     def msg(self, params):
         if self in self.server.clients.values():
-            self.request.send(':%s NOTICE %s :%s\n' %
-                              (SRV_DOMAIN, self.nick, params))
+            self.request.send(':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params))
         else:
             client = self.server.clients.get(self.nick)
             if client:
-                client.send_queue.append(':%s NOTICE %s :%s' %
-                                         (SRV_DOMAIN, self.nick, params))
+                client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, params))
 
     @scripts
     def handle_privmsg(self, params):
@@ -709,15 +695,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if channel:
                 if not channel.name in self.channels:
                     # The user isn't in the channel.
-                    raise IRCError(ERR_CANNOTSENDTOCHAN,
-                                   '%s :Cannot send to channel' %
-                                   (channel.name))
+                    raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
                 if 'm' in channel.modes:
                     if self.nick not in channel.modes['v'] and self.nick not in channel.modes['h'] \
                     and self.nick not in channel.modes['o'] and self.nick not in channel.modes['a'] \
                     and self.nick not in channel.modes['q'] and not self.oper:
-                        raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' %
-                                       (channel.name, channel.name))
+                        raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' % (channel.name, channel.name))
                 if 'r' in channel.modes:
                     message = ':%s PRIVMSG %s %s' % (
                         channel.supported_modes['r'].split()[0], target, msg)
@@ -2126,17 +2109,23 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
         self.scripts.server = self
 
-
-
 class Shared(object):
     """
-     This is a nifty little shared-memory container for server links.
+    This is a nifty shared-memory container for server links.
     """
     objects = {}
+    queue   = []
 
 class IRCServerLink(object):
+    """
+    Represents a connection to a remote Psyrcd instance.
+    We start IRCServerLink.connect in a thread and can reasonably expect
+    self.shared to be a dictionary that was created by the main thread.
+    This permits inter-thread communication based on the actor model.
+    """
     socket = None
     connected = False
+    shared = None
 
     def __init__(self, host, key):
         self.host = host
@@ -2144,8 +2133,7 @@ class IRCServerLink(object):
 
     def connect(self):
         self.socket.connect(self.host)
-        self.send("NICK %s" % self.nickname)
-        self.send("USER %(nick)s %(nick)s %(nick)s :%(nick)s" % {'nick':self.nickname})
+        self.send("LINK %s %s" % (SRV_DOMAIN, self.key))
 
         while True:
             buf = self.socket.recv(4096)
@@ -2176,10 +2164,10 @@ class IRCServerLink(object):
 
 class Script(object):
     """
-     Represents the execution environment for a third-party script.
-     We send custom values into the environment and work with what's left.
-     Scripts can also call methods on objects put into their environment too.
-     It's quite unrestricted, we trust you know what you're doing even if it's insane.
+    Represents the execution environment for a third-party script.
+    We send custom values into the environment and work with whatever's left.
+    Scripts can also call any methods on objects put in their environment.
+    It's quite unrestricted, we trust you know what you're doing even if it's insane.
     """
     def __init__(self, file=None, env={}):
         self.read_on_exec = options.debug
@@ -2675,8 +2663,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         logging.getLogger('').addHandler(console)
 
     if OPER_PASSWORD == True:
-        OPER_PASSWORD = hashlib.new('sha512',
-                                    str(os.urandom(20))).hexdigest()[:20]
+        OPER_PASSWORD = hashlib.new('sha512',str(os.urandom(20))).hexdigest()[:20]
 
     if not sys.stdin.isatty():
         OPER_PASSWORD = sys.stdin.read().strip('\n').split(' ', 1)[0]
@@ -2688,7 +2675,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         Daemon(options.pidfile)
     else:
         logging.debug("Netadmin login: %s/oper %s %s%s" % \
-                      (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
+            (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
 
     # Hash the password in memory.
     OPER_PASSWORD = hashlib.sha512(OPER_PASSWORD).hexdigest()
