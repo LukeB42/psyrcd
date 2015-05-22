@@ -2126,6 +2126,7 @@ class IRCServerLink(object):
     socket = None
     connected = False
     shared = None
+    self.server = None
 
     def __init__(self, host, key):
         self.host = host
@@ -2136,6 +2137,7 @@ class IRCServerLink(object):
         self.send("LINK %s %s" % (SRV_DOMAIN, self.key))
 
         while True:
+            self.receive()
             buf = self.socket.recv(4096)
             lines = buf.split("\n")
             for data in lines:
@@ -2161,6 +2163,14 @@ class IRCServerLink(object):
                 ctx['target'] = args[2]
                 ctx['msg']  = args[3][1:]
 
+    def receive(self, message=None):
+        """
+        Receive commands from the local server, such as privmsg, whois etc.
+        """
+		if not message:
+            message = self.shared.inbox
+        func = getattr(self, "handle_" + message[0])
+        func(message[1])        
 
 class Script(object):
     """
