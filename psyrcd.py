@@ -2126,7 +2126,7 @@ class IRCServerLink(object):
     socket = None
     connected = False
     shared = None
-    self.server = None
+    server = None
 
     def __init__(self, host, key):
         self.host = host
@@ -2167,7 +2167,7 @@ class IRCServerLink(object):
         """
         Receive commands from the local server, such as privmsg, whois etc.
         """
-		if not message:
+        if not message:
             message = self.shared.inbox
         func = getattr(self, "handle_" + message[0])
         func(message[1])        
