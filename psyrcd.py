@@ -382,6 +382,29 @@ class IRCOperator(object):
         elif cmd == 'unload':
             s.unload(args, self.client)
 
+    def handle_sajoin(self, params):
+        """
+        Permits an IRC Operator to force a client to JOIN a channel.
+        """
+        target, channel = params.split()
+        victim = self.client.server.clients.get(target)
+        if victim: victim.handle_join(channel)
+
+    def handle_sapart(self, params):
+        """
+        Permits an IRC Operator to force a client to PART a channel.
+        """
+        target, channel = params.split()
+        victim = self.client.server.clients.get(target)
+        if victim: victim.handle_part(channel)
+
+    def handle_sjoin(self, params):
+        """
+        Join the user into a randomly named channel with modes +iarpstn.
+        Doesn't show up in /list. /names returns [redacted]. PRIVMSG filters names to [redacted]
+        """
+        pass
+
 
 def scripts(func):
     def wrapper(self, *args, **kwargs):
@@ -1643,7 +1666,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
     @scripts
     def handle_topic(self, params):
         """
-        Handle a topic command.
+        Displays or sets the channel of a topic.
+        Usage: /topic #channel
+               /topic #channel new topic
         """
         self.last_activity = str(time.time())[:10]
         if ' ' in params:
@@ -1837,6 +1862,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
 
     @scripts
     def handle_chghost(self, params):
+        """
+        IRCops only. Changes the vhost of a user.
+        Usage: /chghost nick newhost
+        """
         if self.oper:
             target, vhost = params.split(' ', 1)
             target = self.server.clients.get(target)
@@ -1875,7 +1904,17 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Use "/helpop cmode modename" for documentation on a given channel mode.
         Use "/helpop umode modename" for documentation on a given user mode.
         """
-        if not ' ' in params:
+        if params == "command":
+            response = ": Available commands are %s." % ', '.join([c[7:] for c in dir(self) if c.startswith("handle_")])
+            self.broadcast(self.nick, response)
+
+        elif params == "umode": pass
+        elif params == "cmode": pass
+        elif params == "ocommand" and self.oper:
+            response = ": Available OperServ commands are %s." % \
+                ', '.join([c[7:] for c in dir(self.oper) if c.startswith("handle_")])
+            self.broadcast(self.nick, response)
+        elif not ' ' in params:
             docs = self.handle_helpop.__doc__.split('\n')
             doc = ''
             for line in docs:
@@ -2002,34 +2041,6 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.broadcast(
                     'umode:W', ':%s NOTICE * :%s removed the K:Line for %s' %
                     (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
-
-    @scripts
-    def handle_sajoin(self, params):
-        """
-        Permits an IRC Operator to force a client to JOIN a channel.
-        """
-        if self.oper:
-            target, channel = params.split()
-            victim = self.server.clients.get(target)
-            if victim: victim.handle_join(channel)
-
-    @scripts
-    def handle_sapart(self, params):
-        """
-        Permits an IRC Operator to force a client to PART a channel.
-        """
-        if self.oper:
-            target, channel = params.split()
-            victim = self.server.clients.get(target)
-            if victim: victim.handle_part(channel)
-
-    @scripts
-    def handle_sjoin(self, params):
-        """
-        Join the user into a randomly named channel with modes +iarpstn.
-        Doesn't show up in /list. /names returns [redacted]. PRIVMSG filters names to [redacted]
-        """
-        pass
 
     def client_ident(self, masking=None):
         """
