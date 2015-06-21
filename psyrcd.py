@@ -2063,7 +2063,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         if not self.nick: return ()
         if not response:
-            response = ':%s QUIT :EOF from client' % (self.client_ident(True))
+            response = ':%s QUIT :Connection reset by peer.' % (self.client_ident(True))
         if not self.nick in self.server.clients: return ()
         #        self.request.send(response)
         peers = []
