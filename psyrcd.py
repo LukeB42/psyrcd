@@ -2188,7 +2188,6 @@ class Script(object):
     Represents the execution environment for a third-party script.
     We send custom values into the environment and work with whatever's left.
     Scripts can also call any methods on objects put in their environment.
-    It's quite unrestricted, we trust you know what you're doing even if it's insane.
     """
     def __init__(self, file=None, env={}):
         self.read_on_exec = options.debug

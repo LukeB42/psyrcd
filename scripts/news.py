@@ -12,7 +12,7 @@
 # \x1F underlined text
 
 API_KEY = ""
-EM_IDENT = "EmissaryServ!services@" + cache['config']['SRV_DOMAIN']
+EM_IDENT = "Emissary!services@" + cache['config']['SRV_DOMAIN']
 
 def emsg(msg):
 	client.broadcast(client.nick, ":%s PRIVMSG %s :%s" % \
