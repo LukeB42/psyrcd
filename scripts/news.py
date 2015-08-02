@@ -16,11 +16,15 @@ EM_IDENT = "Emissary!services@" + cache['config']['SRV_DOMAIN']
 COMMAND_PREFIX = ":news"
 #log = cache['config']['logging'].debug
 
-def emsg(msg):
-	client.broadcast(client.nick, ":%s PRIVMSG %s :%s" % \
-		(EM_IDENT,channel.name,msg))
+def emsg(msg, indent=0):
+	if indent:
+		client.broadcast(client.nick, ":%s PRIVMSG %s :%s%s" % \
+			(EM_IDENT,channel.name," "*indent, msg))
+	else:
+		client.broadcast(client.nick, ":%s PRIVMSG %s :%s" % \
+			(EM_IDENT,channel.name,msg))
 
-def transmit_articles(res):
+def transmit_article_titles(res):
 	if res[1] == 200:
 		for d in res[0]:
 			if not '://' in d['url']:
@@ -36,15 +40,49 @@ def transmit_articles(res):
 		emsg("Error.")
 
 
+def transmit_feed_objects(res):
+	(resp, status) = res
+	if 'feeds' in resp:
+		created = dt.datetime.fromtimestamp(int(resp['created'])).strftime('%H:%M:%S %d/%m/%Y')
+		if resp['active'] == True:
+			emsg("\x033%s\x0F (created %s)" % (resp['name'], created))
+		else:
+			emsg("%s (created %s)" % (resp['name'], created))
+
+		for feed in resp['feeds']:
+			transmit_feed(feed)
+	else:
+		transmit_feed(resp)
+
+def transmit_feed(feed):
+	created = dt.datetime.fromtimestamp(int(feed['created'])).strftime('%H:%M:%S %d/%m/%Y')
+	if feed['active'] == True:
+		emsg("\x033%s\x0F" % feed['name'], 2)
+	else:
+		emsg("%s" % feed['name'], 2)
+	emsg("      Created: %s" % created, 2)
+	if feed['running'] == True:
+		emsg("      Running: \x033%s\x0F" % (feed['running']), 2)
+	elif feed['running'] == False:
+		emsg("      Running: \x031%s\x0F" % (feed['running']), 2)
+	else:
+		emsg("      Running: \x0314Unknown\x0F", 2)
+
+	emsg("          URL: %s" % feed['url'], 2)
+	emsg("     Schedule: %s" % feed['schedule'], 2)
+	emsg("Article count: %s" % "{:,}".format(feed['article_count']), 2)
+
+
 if 'init' in dir():
 	provides = "cmode:news:Provides an in-channel interface to Emissary."
 	if init:
 		if not 'client' in cache:
 			from emissary.client import Client
-			client = Client(API_KEY,'https://localhost:6362/v1/', verify=False)
+			client = Client(API_KEY,'https://localhost:6362/v1/', verify=False, timeout=3.5)
 			cache['client'] = client
 	else:
-		del cache['client']
+		if 'client' in cache:
+			del cache['client']
 
 if 'display' in dir():
 	c = cache['client']
@@ -63,27 +101,34 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 
 		if params[1].startswith('articles'):
 			res = c.get(params[1])
-			transmit_articles(res)
-
-		elif params[1] == 'read':
-			res = c.get('articles/' + params[2])
-			if res[1] == 200:
-				if not res[0]['content']: emsg("No content.")
-			else:
-					title = res[0]['title']
-					url = res[0]['url']
-					created = res[0]['created']
-					content = res[0]['content']
-					for line in content.split('\n'):
-						emsg(line)
+			transmit_article_titles(res)
 
 		elif params[1].startswith('feeds'):
 			res = c.get(params[1])
 			if res[1] != 200: emsg("Error.")
 			if '/search/' in params[1] or '/articles' in params[1]:
-				transmit_articles(res)
+				transmit_article_titles(res)
 			else:
-				import pprint
-				for line in pprint.pformat(res[0]).split('\n'):
-					emsg(line)
+				transmit_feed_objects(res)
+
+		elif params[1] == 'read':
+			emsg("hello")
+			(resp, status) = c.get('articles/' + params[2])
+			if status != 200:
+				emsg("Error status %i" % status)
+			else:
+				if not resp['content']:
+					emsg("No content.")
+				else:
+					title = resp['title']
+					url = resp['url']
+					created = resp['created']
+					content = resp['content']
+					emsg(title)
+					emsg(url)
+					for line in content.split('\n'):
+						emsg(line)
+
 	del c
+
+del API_KEY
