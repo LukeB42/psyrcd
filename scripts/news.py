@@ -12,9 +12,10 @@
 # \x1F underlined text
 import datetime as dt
 API_KEY = ""
+EMISSARY_HOST = "localhost:6362"
 EM_IDENT = "Emissary!services@" + cache['config']['SRV_DOMAIN']
 COMMAND_PREFIX = ":news"
-#log = cache['config']['logging'].debug
+logging = cache['config']['logging']
 
 def emsg(msg, indent=0):
 	if indent:
@@ -39,9 +40,15 @@ def transmit_article_titles(res):
 	else:
 		emsg("Error.")
 
-
 def transmit_feed_objects(res):
 	(resp, status) = res
+	if type(resp) == list:
+		for fg in resp:
+			transmit_feed_group(fg)
+	else:
+		transmit_feed_group(resp)
+
+def transmit_feed_group(resp):
 	if 'feeds' in resp:
 		created = dt.datetime.fromtimestamp(int(resp['created'])).strftime('%H:%M:%S %d/%m/%Y')
 		if resp['active'] == True:
@@ -76,9 +83,12 @@ def transmit_feed(feed):
 if 'init' in dir():
 	provides = "cmode:news:Provides an in-channel interface to Emissary."
 	if init:
+		if not API_KEY:
+			logging.error("API key undefined in news.py.")
+#			client.broadcast("umode:W", ": There's no API key defined in news.py.")
 		if not 'client' in cache:
 			from emissary.client import Client
-			client = Client(API_KEY,'https://localhost:6362/v1/', verify=False, timeout=3.5)
+			client = Client(API_KEY,'https://%s/v1/' % EMISSARY_HOST, verify=False, timeout=3.5)
 			cache['client'] = client
 	else:
 		if 'client' in cache:
@@ -112,7 +122,6 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 				transmit_feed_objects(res)
 
 		elif params[1] == 'read':
-			emsg("hello")
 			(resp, status) = c.get('articles/' + params[2])
 			if status != 200:
 				emsg("Error status %i" % status)
@@ -126,6 +135,7 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 					content = resp['content']
 					emsg(title)
 					emsg(url)
+					emsg("")
 					for line in content.split('\n'):
 						emsg(line)
 
