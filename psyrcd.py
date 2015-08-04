@@ -66,7 +66,7 @@ import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket,
 
 NET_NAME        = "psyrcd-dev"
 SRV_VERSION     = "psyrcd-0.15"
-SRV_DOMAIN      = "debian.btg.btglobal.local"
+SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
 SRV_CREATED     = time.asctime()
@@ -281,20 +281,6 @@ class IRCOperator(object):
         response = ':%s NOTICE %s :Created an oper account for %s.' % \
             (SRV_DOMAIN, self.client.nick, user.nick)
         self.client.broadcast(self.client.nick, response)
-
-    def handle_flood(self, params):
-        """
-        Flood a channel with a given text file.
-        """
-        channel, file = params.split(' ', 1)
-        if os.path.exists(file):
-            fd = open(file)
-            for line in fd:
-                message = ':%s PRIVMSG %s %s' % (self.client.client_ident(), channel, line.strip('\n'))
-                self.client.broadcast(channel,message)
-        else:
-            response = ':%s NOTICE %s :%s does not exist.' % (SRV_DOMAIN, self.client.nick, file)
-            self.client.broadcast(self.client.nick,response)
 
     def handle_scripts(self, params):
         """
@@ -1636,7 +1622,17 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Use "/helpop cmode modename" for documentation on a given channel mode.
         Use "/helpop umode modename" for documentation on a given user mode.
         """
-        if not ' ' in params:
+        if params == "command":
+            response = ": Available commands are %s." % ', '.join([c[7:] for c in dir(self) if c.startswith("handle_")])
+            self.broadcast(self.nick, response)
+
+        elif params == "umode": pass
+        elif params == "cmode": pass
+        elif params == "ocommand" and self.oper:
+            response = ": Available OperServ commands are %s." % \
+                ', '.join([c[7:] for c in dir(self.oper) if c.startswith("handle_")])
+            self.broadcast(self.nick, response)
+        elif not ' ' in params:
             docs = self.handle_helpop.__doc__.split('\n')
             doc = ''
             for line in docs:
@@ -1652,19 +1648,20 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 message = ': Use "/helpop ocommand commandname" for documentation on a given operserv command.'
                 self.broadcast(self.nick, message)
         else:
-            (section, topic) = params.split(' ',1)
+            (section, topic) = params.split(' ', 1)
             if section == "umode":
                 if topic in self.supported_modes:
                     message = ": %s help on user mode %s" % (SRV_DOMAIN, topic)
                     self.broadcast(self.nick, message)
                     message = ": %s" % self.supported_modes[topic]
                     self.broadcast(self.nick, message)
-            elif section == "command":
-                if hasattr(self, "handle_"+topic):
-                    message = ": %s help on command %s" % (SRV_DOMAIN, topic.upper())
+            elif section == "command":   
+                if hasattr(self, "handle_" + topic):   
+                    message = ": %s help on command %s" % (SRV_DOMAIN,
+                                                           topic.upper())
                     self.broadcast(self.nick, message)
-                    command = getattr(self,"handle_"+topic)
-                    docs = command.__doc__.split('\n')
+                    command = getattr(self, "handle_" + topic)
+                    docs = command.__doc__.split('\n') 
                     doc = ''
                     for line in docs:
                         i = 0
@@ -1676,16 +1673,17 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     message = ": %s" % doc
                     self.broadcast(self.nick, message)
                 else:
-                    message = ": Unknown command %s"  % topic.upper()
+                    message = ": Unknown command %s" % topic.upper()
                     self.broadcast(self.nick, message)
             elif section == "ocommand":
                 if self.oper:
-                    if hasattr(self.oper, "handle_"+topic):
-                        message = ": %s help on operserv command %s" % (SRV_DOMAIN, topic.upper())
+                    if hasattr(self.oper, "handle_" + topic):
+                        message = ": %s help on operserv command %s" % (
+                            SRV_DOMAIN, topic.upper())
                         self.broadcast(self.nick, message)
-                        command = getattr(self.oper,"handle_"+topic)
+                        command = getattr(self.oper, "handle_" + topic)
                         docs = command.__doc__.split('\n')
-                        doc = ''
+                        doc = ''  
                         for line in docs:
                             i = 0
                             for character in line:
@@ -1697,10 +1695,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         message = ": %s" % doc
                         self.broadcast(self.nick, message)
                     else:
-                        message = ": Unknown operserv command %s"  % topic.upper()
+                        message = ": Unknown operserv command %s" % topic.upper()
                         self.broadcast(self.nick, message)
                 else:
-                    message  = ": You must be an IRC Operator to view the ocommand section."
+                    message = ": You must be an IRC Operator to view the ocommand section."
                     self.broadcast(self.nick, message)
 
     @scripts
@@ -1769,7 +1767,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         if not self.nick: return()
         if not response:
-            response = ':%s QUIT :EOF from client' % (self.client_ident(True))
+            response = ':%s QUIT :Connection reset by peer' % (self.client_ident(True))
         if not self.nick in self.server.clients: return()
 #        self.request.send(response)
         peers = []
@@ -2002,7 +2000,7 @@ class Scripts(object):
                 if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
                 logging.error(err)
 
-    def unload(self, script, client=None):
+    def unload(self, script, client=None, force=False):
         try: provides = self.init(script,client,loading=False)
         except: return
         err=''
@@ -2293,6 +2291,17 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
     if not sys.stdin.isatty():
         OPER_PASSWORD = sys.stdin.read().strip('\n').split(' ',1)[0]
 
+    if options.run_as:
+        try:
+            uid = pwd.getpwnam(options.run_as)[2]
+            os.setuid(uid)
+            logging.info("Now running as %s." % options.run_as)
+            if OPER_USERNAME == None:
+                OPER_USERNAME = options.run_as
+        except:
+            logging.info("Couldn't switch to user %s" % options.run_as)
+            raise SystemExit
+
     # Detach from console, reparent to init
     if not options.foreground:
         print "Netadmin login: %s/oper %s %s%s" % \
@@ -2302,14 +2311,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" %
         logging.debug("Netadmin login: %s/oper %s %s%s" % \
             (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
 
-    if options.run_as:
-        try:
-            uid = pwd.getpwnam(options.run_as)[2]
-            os.setuid(uid)
-            logging.info("Now running as %s." % options.run_as)
-        except:
-            logging.info("Couldn't switch to user %s" % options.run_as)
-            raise SystemExit
 
     # Hash the password in memory.
     OPER_PASSWORD = hashlib.sha512(OPER_PASSWORD).hexdigest()
