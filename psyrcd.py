@@ -1718,7 +1718,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         if self.oper:
             if not params or params.lower() == 'list':
-                if not self.server.lines['K']: return(': There are no K:Lines defined on this server.')
+
+                if not self.server.lines['K']:
+                    return(': There are no K:Lines defined on this server.')
+
                 data = []
                 for kline, attributes in self.server.lines['K'].items():
                     t = int(attributes[1])
@@ -1733,22 +1736,27 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 for line in table.split('\n'): self.msg(line)
                 del data, fmt, table, t, tmp
                 return()
+
             cmd = params.split()[0]
             if cmd.lower() == 'add':
-                if len(params.split()) < 3: raise IRCError(ERR_NEEDMOREPARAMS, "You must also supply a reason.")
+                if len(params.split()) < 3:
+                    raise IRCError(ERR_NEEDMOREPARAMS, "You must also supply a reason.")
                 t = str(time.time())[:10]
                 host, reason = params.split(' ',2)[1:]
                 host = re_to_irc(host,False)
                 if host in self.server.lines['K']: raise IRCError(500, "Host already K:Lined.")
                 self.server.lines['K'][host] = [self.client_ident(True), t, reason]
-                self.broadcast('umode:W', ':%s NOTICE * :%s added a K:Line for %s "%s"' % (SRV_DOMAIN, self.client_ident(True), re_to_irc(host), reason))
+                self.broadcast('umode:W', ':%s NOTICE * :%s added a K:Line for %s "%s"' % \
+                    (SRV_DOMAIN, self.client_ident(True), re_to_irc(host), reason))
 
             elif cmd.lower() == 'remove':
-                if not ' ' in params: raise IRCError(ERR_NEDMOREPARAMS, "You didn't specify which K:Line to remove.")
+                if not ' ' in params:
+                    raise IRCError(ERR_NEDMOREPARAMS, "You didn't specify which K:Line to remove.")
                 host = re_to_irc(params.split()[1],False)
                 if host in self.server.lines['K']:
                     del self.server.lines['K'][host]
-                self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
+                self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % \
+                    (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
 
     def client_ident(self,masking=None):
         """
@@ -1776,7 +1784,15 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #        self.request.send(response)
         peers = []
         for channel in self.channels.values():
-            if self in channel.clients: channel.clients.remove(self)
+            if self in channel.clients:
+                # Remove this nick from any ops lists
+                # and then remove the nick from the channel's list of clients.
+                # That way we can collect the remaining users to transmit the
+                # disconnect message to.
+                for op_list in channel.ops:
+                    if self.nick in op_list:
+                        op_list.remove(self.nick)
+                channel.clients.remove(self)
             if len(channel.clients) < 1 and channel.name in self.server.channels:
                 self.server.channels.pop(channel.name)
             else:
