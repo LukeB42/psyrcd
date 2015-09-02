@@ -65,7 +65,7 @@
 import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.15"
+SRV_VERSION     = "psyrcd-0.16"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -430,19 +430,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
     handle_ methods.
     """
     def __init__(self, request, client_address, server):
-        self.connected_at = str(time.time())[:10] 
+        self.connected_at  = str(time.time())[:10] 
         self.last_activity = 0                    # Subtract this from time.time() to determine idle time.
-        self.user = None                          # The bit before the @
-        self.host = client_address                # Client's hostname / ip.
-        self.rhost = lookup(self.host[0])         # This users rdns. May return None.
-        self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(self.host[0])] # Keeps the hostmask unique which keeps bans functioning
-        self.realname = None                      # Client's real name
-        self.nick = None                          # Client's currently registered nickname
-        self.vhost = None                         # Alternative hostmask for WHOIS requests
-        self.send_queue = []                      # Messages to send to client (strings)
-        self.channels = {}                        # Channels the client is in
-        self.modes = {'x':1}                      # Usermodes set on the client
-        self.oper = None                          # Assign an IRCOperator object if user opers up
+        self.user          = None                 # The bit before the @
+        self.host          = client_address       # Client's hostname / ip.
+        self.rhost         = lookup(self.host[0]) # This users rdns. May return None.
+        self.realname      = None                 # Client's real name
+        self.nick          = None                 # Client's currently registered nickname
+        self.vhost         = None                 # Alternative hostmask for WHOIS requests
+        self.send_queue    = []                   # Messages to send to client (strings)
+        self.channels      = {}                   # Channels the client is in
+        self.modes         = {'x':1}              # Usermodes set on the client
+        self.oper          = None                 # Assign an IRCOperator object if user opers up
+        self.remote        = False                # User is known to us through a server link
         self.supported_modes = {                  # Uppercase modes are oper-only
         'A':"IRC Administrator.",
 #        'b':"Bot.",
@@ -460,6 +460,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
         'x':"Masked hostname. Hides the users hostname or IP address from other users.",
         'Z':"SSL connection."
         }
+        # Keeps the hostmask unique which keeps bans functioning:
+        self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(self.host[0])]
 
         SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
 
@@ -503,6 +505,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
             except: break
 
            # Write any commands to the client.
+#               if self.remote:
+#                   self.request.send(self.nick, message)
             while self.send_queue:
                 msg = self.send_queue.pop(0)
                 logging.debug('to %s: %s' % (self.client_ident(), msg))
@@ -1821,6 +1825,10 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                      }           # An example of the syntax is: lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
         self.scripts.server = self
+
+# How to reason about users who aren't connected:
+# RemoteClient.server = remote_hostname
+# IRCServer.links[remote_hostname] where each element has its own dictionary of links..
 
 class Shared(object):
     """
