@@ -1,13 +1,14 @@
 # Psyrcd
 
-A full IRCD in two commands:
+A full IRCD in 60 seconds OR TRIPLE YOUR MONEY BACK:
 <pre>
+git clone https://github.com/LukeB42/psyrcd && cd psyrcd
 sudo python setup.py install
 psyrcd -f
 </pre>
 ### The Psybernetics IRC Server.
 
-Psyrcd is a pure-python IRCd that supports scriptable commands, user modes and
+Psyrcd is a pure-python IRCD that supports scriptable commands, user modes and
 channel modes, the behavior of which can be redefined while in use.
 
 A NickServ and ChanServ are included as scripts.
