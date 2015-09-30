@@ -429,40 +429,40 @@ class IRCClient(SocketServer.BaseRequestHandler):
     It then handles commands sent by the client by dispatching them to the
     handle_ methods.
     """
-    def __init__(self, request, client_address, server):
-        self.connected_at  = str(time.time())[:10] 
-        self.last_activity = 0                    # Subtract this from time.time() to determine idle time.
-        self.user          = None                 # The bit before the @
-        self.host          = client_address       # Client's hostname / ip.
-        self.rhost         = lookup(self.host[0]) # This users rdns. May return None.
-        self.realname      = None                 # Client's real name
-        self.nick          = None                 # Client's currently registered nickname
-        self.vhost         = None                 # Alternative hostmask for WHOIS requests
-        self.send_queue    = []                   # Messages to send to client (strings)
-        self.channels      = {}                   # Channels the client is in
-        self.modes         = {'x':1}              # Usermodes set on the client
-        self.oper          = None                 # Assign an IRCOperator object if user opers up
-        self.remote        = False                # User is known to us through a server link
-        self.supported_modes = {                  # Uppercase modes are oper-only
+    last_activity   = 0         # Subtract this from time.time() to determine idle time.
+    user            = None      # The bit before the @
+    realname        = None      # Client's real name
+    nick            = None      # Client's currently registered nickname
+    vhost           = None      # Alternative hostmask for WHOIS requests
+    send_queue      = []        # Messages to send to client (strings)
+    channels        = {}        # Channels the client is in
+    modes           = {'x':1}   # Usermodes set on the client
+    oper            = None      # Assign an IRCOperator object if user opers up
+    remote          = False     # User is known to us through a server link
+    supported_modes = {         # Uppercase modes are oper-only
         'A':"IRC Administrator.",
-#        'b':"Bot.",
+#       'b':"Bot.",
         'D':"Deaf. User does not recieve channel messages.",
         'H':"Hide ircop line in /whois.",
-#        'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
-#        'N':"Network Administrator.",
+#       'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
+#       'N':"Network Administrator.",
         'O':"IRC Operator.",
-#        'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
-#        'p':"Hidden Channels. Hides the channels line in the users /whois",
+#       'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
+#       'p':"Hidden Channels. Hides the channels line in the users /whois",
         'Q':"Kick Block. Cannot be /kicked from channels.",
         'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
         'W':"Wallops. Recieve connect, disconnect and traceback notices.",
-#        'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
+#       'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
         'x':"Masked hostname. Hides the users hostname or IP address from other users.",
         'Z':"SSL connection."
-        }
+    }
+
+    def __init__(self, request, client_address, server):
+        self.connected_at  = str(time.time())[:10] 
+        self.host          = client_address       # Client's hostname / ip.
+        self.rhost         = lookup(self.host[0]) # This users rdns. May return None.
         # Keeps the hostmask unique which keeps bans functioning:
         self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(self.host[0])]
-
         SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
 
     def handle(self):
@@ -1827,20 +1827,30 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     def __init__(self, server_address, RequestHandlerClass):
         self.servername = SRV_DOMAIN
-        self.channels = {}       # Existing channels (IRCChannel instances) by channel name
-        self.clients = {}        # Connected clients (IRCClient instances) by nickname
-        self.opers = {}          # Authenticated IRCops (IRCOperator instances) by nickname
-        self.scripts = Scripts() # The scripts object we attach external execution routines to.
-        self.link_key = None     # Oper-defined pass for accepting connections as server links.
-        self.links = {}          # Other servers (IRCServerLink instances) by domain or address
-        self.lines = {           # Bans we check on client connect, against...
-                      'K':{},    # A userhost, locally
-#                      'G':{},    # A userhost, network-wide
-                      'Z':{},    # An IP range, locally
-#                      'GZ':{}    # An IP range, network-wide 
-                     }           # An example of the syntax is: lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
+        self.channels   = {}        # Existing channels (IRCChannel instances) by channel name
+        self.clients    = {}        # Connected clients (IRCClient instances) by nickname
+        self.opers      = {}        # Authenticated IRCops (IRCOperator instances) by nickname
+        self.scripts    = Scripts() # The scripts object we attach external execution routines to.
+        self.link_key   = None      # Oper-defined pass for accepting connections as server links.
+        self.links      = {}        # Other servers (IRCServerLink instances) by domain or address
+        self.lines      = {         # Bans we check on client connect, against...
+                           'K':{},  # A userhost, locally
+#                          'G':{},  # A userhost, network-wide
+                           'Z':{},  # An IP range, locally
+#                          'GZ':{}  # An IP range, network-wide 
+                          }         # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
         self.scripts.server = self
+
+
+class RemoteClient(IRCClient):
+    remote = True
+    def __init__(self, request, client_address, server):
+        while True:
+            while self.send_queue:
+                msg = self.send_queue.pop(0)
+                logging.debug('to %s: %s' % (self.client_ident(), msg))
+                self.request.send(msg.encode('utf-8','ignore') + '\n')
 
 # How to reason about users who aren't connected:
 # RemoteClient.server = remote_hostname

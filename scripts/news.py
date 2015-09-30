@@ -1,5 +1,15 @@
 # news.py for Psyrcd.
 # Implements channel mode +news
+# This channel mode permits users to read from a live Emissary instance
+# in-channel, including searching through articles, reviewing feed status and
+# reading articles over IRC. All of the usual Emissary endpoints are supported.
+#
+# Eg: /operserv scripts load news.py
+#     /mode #somechannel +news
+#     /privmsg #somechannel :news feeds?per_page=5
+#     /privmsg #somechannel :news articles/search/Linux
+#     /privmsg #somechannel :news read NTI0NDc5Nw
+#
 # Luke Brooks, 2015
 # MIT License
 
@@ -27,7 +37,7 @@ def emsg(msg, indent=0):
 
 def transmit_article_titles(res):
 	if res[1] == 200:
-		for d in res[0]:
+		for d in res[0]['data']:
 			if not '://' in d['url']:
 				d['url'] = "http://" + d['url']
 			if d['content_available']:
@@ -42,6 +52,8 @@ def transmit_article_titles(res):
 
 def transmit_feed_objects(res):
 	(resp, status) = res
+	if 'data' in resp.keys():
+		resp = resp['data']
 	if type(resp) == list:
 		for fg in resp:
 			transmit_feed_group(fg)
@@ -55,7 +67,6 @@ def transmit_feed_group(resp):
 			emsg("\x033%s\x0F (created %s)" % (resp['name'], created))
 		else:
 			emsg("%s (created %s)" % (resp['name'], created))
-
 		for feed in resp['feeds']:
 			transmit_feed(feed)
 	else:
@@ -74,7 +85,6 @@ def transmit_feed(feed):
 		emsg("      Running: \x031%s\x0F" % (feed['running']), 2)
 	else:
 		emsg("      Running: \x0314Unknown\x0F", 2)
-
 	emsg("          URL: %s" % feed['url'], 2)
 	emsg("     Schedule: %s" % feed['schedule'], 2)
 	emsg("Article count: %s" % "{:,}".format(feed['article_count']), 2)
@@ -111,7 +121,8 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 
 		if params[1].startswith('articles'):
 			res = c.get(params[1])
-			transmit_article_titles(res)
+			if res:
+				transmit_article_titles(res)
 
 		elif params[1].startswith('feeds'):
 			res = c.get(params[1])
@@ -138,7 +149,6 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 					emsg("")
 					for line in content.split('\n'):
 						emsg(line)
-
 	del c
 
 del API_KEY
