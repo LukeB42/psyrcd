@@ -138,7 +138,7 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
 				emsg("Error status %i" % status)
 			else:
 				if not resp['content']:
-					emsg("No content.")
+					emsg("No content for %s" % resp['url'])
 				else:
 					title = resp['title']
 					url = resp['url']
