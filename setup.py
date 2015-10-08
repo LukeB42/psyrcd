@@ -51,7 +51,7 @@ def install():
 		print "Installing init script to /etc/init.d/psyrcd"
 		shutil.copyfile("psyrcd","/etc/init.d/psyrcd")
 
-	print "Moving psyrcd.py to /usr/bin/psyrcd.py"
+	print "Moving psyrcd.py to /usr/bin/psyrcd"
 	shutil.copyfile("./psyrcd.py", "/usr/bin/psyrcd")
 
 	print "Making /usr/bin/psyrcd executable."
