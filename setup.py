@@ -61,7 +61,11 @@ def install():
 
 def uninstall():
 
-	# remove init script
+	# remove systemd unit/init script
+	if os.path.exists("/etc/systemd/system/psyrcd.service"):
+		print "Removing /etc/systemd/system/psyrcd.service"
+		os.remove("/etc/systemd/system/psyrcd.service")
+
 	if os.path.exists("/etc/init.d/psyrcd"):
 		print "Removing /etc/init.d/psyrcd"
 		os.remove("/etc/init.d/psyrcd")
