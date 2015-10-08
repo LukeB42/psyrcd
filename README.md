@@ -3,7 +3,7 @@
 A full IRCD in 60 seconds OR TRIPLE YOUR MONEY BACK.
 <pre>
 git clone https://github.com/LukeB42/psyrcd && cd psyrcd
-sudo python setup.py install
+sudo python2 setup.py install
 psyrcd -f
 </pre>
 ### The Psybernetics IRC Server.
@@ -19,8 +19,8 @@ Tested with Python 2.7 on Linux 2.6 to 3.14.
 
 #### Ceaveat lector
 
-Errant scripts can't be removed if they can't be parsed. Scripts tell Psyrcd
+Will probably only ever run on Python 2.x.
+
+Scripts can't be removed if they can't be parsed. Scripts tell Psyrcd
 what they've added, so we rely on them to determine what to remove.
 
-The best way to avoid this is to specifically check for the types of
-invocation a script may concern itself with.
