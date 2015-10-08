@@ -1,4 +1,4 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python2
 # _*_ coding: UTF-8 _*_
 
 # psyrcd the Psybernetics IRC server.
