@@ -19,7 +19,7 @@ LOGFILE=/var/log/psyrcd/ircd.log
 case "$1" in
   start)
     echo "Starting psyrcd"
-    echo q|psyrcd --run-as=$USER --logfile=$LOGFILE --pidfile=$PIDFILE --scripts-dir=$SCRIPTS --preload
+    echo changeme|psyrcd --run-as=$USER --logfile=$LOGFILE --pidfile=$PIDFILE --scripts-dir=$SCRIPTS --preload
     ;;
   stop)
     echo "Stopping psyrcd"
