@@ -1,0 +1,8 @@
+[Unit]
+Description=Psyrcd the Psybernetics IRC Server
+
+[Service]
+ExecStart=/usr/bin/psyrcd
+
+[Install]
+WantedBy=multi-user.target

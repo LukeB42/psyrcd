@@ -44,10 +44,13 @@ def install():
 		keywords=["irc", "ircd"]
 	)
 
-	print "Installing init script to /etc/init.d/psyrcd"
-	shutil.copyfile("psyrcd","/etc/init.d/psyrcd")
+	if os.path.exists('/etc/systemd/system'):
+		print "Installing systemd service definition."
+		shutil.copyfile("psyrcd.service","/etc/systemd/system/psyrcd.service")
+	else:
+		print "Installing init script to /etc/init.d/psyrcd"
+		shutil.copyfile("psyrcd","/etc/init.d/psyrcd")
 
-	# move original login program
 	print "Moving psyrcd.py to /usr/bin/psyrcd.py"
 	shutil.copyfile("./psyrcd.py", "/usr/bin/psyrcd")
 
