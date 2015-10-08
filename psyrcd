@@ -11,7 +11,7 @@
 BASEDIR=/srv/psyrcd
 
 USER=
-SCRIPTS=scripts/
+SCRIPTS=$BASEDIR/scripts/
 PIDFILE=$BASEDIR/pid
 LOGFILE=/var/log/psyrcd/ircd.log
 
@@ -19,11 +19,11 @@ LOGFILE=/var/log/psyrcd/ircd.log
 case "$1" in
   start)
     echo "Starting psyrcd"
-    echo q|$BASEDIR/psyrcd.py --run-as=$USER --logfile=$LOGFILE --pidfile=$PIDFILE --scripts-dir=$BASEDIR/$SCRIPTS --preload
+    echo q|psyrcd --run-as=$USER --logfile=$LOGFILE --pidfile=$PIDFILE --scripts-dir=$SCRIPTS --preload
     ;;
   stop)
     echo "Stopping psyrcd"
-    $BASEDIR/psyrcd.py --stop --pidfile=$PIDFILE
+    psyrcd --stop --pidfile=$PIDFILE
     ;;
   *)
     echo "Usage: /etc/init.d/psyrcd {start|stop}"

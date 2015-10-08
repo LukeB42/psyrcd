@@ -1843,9 +1843,17 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.scripts.server = self
 
 
-class RemoteClient(IRCClient):
+class IRCRemoteClient(IRCClient):
+    """
+    Foreign clients are structurally identical to the IRCClient class, with the
+    exception that they're known to us through a remote Psyrcd instance that
+    could be multiple links away.
+    """
     remote = True
     def __init__(self, request, client_address, server):
+        """
+        This could entail emulation of socket file descriptors.
+        """
         while True:
             while self.send_queue:
                 msg = self.send_queue.pop(0)

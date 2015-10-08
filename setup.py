@@ -68,4 +68,7 @@ def uninstall():
 		os.remove("/usr/bin/psyrcd")
 
 if __name__ == "__main__":
+	if sys.version_info[0] != 2:
+		print("Python 3.x isn't supported by Psyrcd yet.")
+		sys.exit(0)
 	main()
