@@ -429,38 +429,38 @@ class IRCClient(SocketServer.BaseRequestHandler):
     It then handles commands sent by the client by dispatching them to the
     handle_ methods.
     """
-    last_activity   = 0         # Subtract this from time.time() to determine idle time.
-    user            = None      # The bit before the @
-    realname        = None      # Client's real name
-    nick            = None      # Client's currently registered nickname
-    vhost           = None      # Alternative hostmask for WHOIS requests
-    send_queue      = []        # Messages to send to client (strings)
-    channels        = {}        # Channels the client is in
-    modes           = {'x':1}   # Usermodes set on the client
-    oper            = None      # Assign an IRCOperator object if user opers up
-    remote          = False     # User is known to us through a server link
-    supported_modes = {         # Uppercase modes are oper-only
-        'A':"IRC Administrator.",
-#       'b':"Bot.",
-        'D':"Deaf. User does not recieve channel messages.",
-        'H':"Hide ircop line in /whois.",
-#       'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
-#       'N':"Network Administrator.",
-        'O':"IRC Operator.",
-#       'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
-#       'p':"Hidden Channels. Hides the channels line in the users /whois",
-        'Q':"Kick Block. Cannot be /kicked from channels.",
-        'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
-        'W':"Wallops. Recieve connect, disconnect and traceback notices.",
-#       'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
-        'x':"Masked hostname. Hides the users hostname or IP address from other users.",
-        'Z':"SSL connection."
-    }
-
     def __init__(self, request, client_address, server):
         self.connected_at  = str(time.time())[:10] 
-        self.host          = client_address       # Client's hostname / ip.
-        self.rhost         = lookup(self.host[0]) # This users rdns. May return None.
+        self.last_activity      = 0                    # Subtract this from time.time() to determine idle time.
+        self.user               = None                 # The bit before the @
+        self.realname           = None                 # Client's real name
+        self.nick               = None                 # Client's currently registered nickname
+        self.vhost              = None                 # Alternative hostmask for WHOIS requests
+        self.send_queue         = []                   # Messages to send to client (strings)
+        self.channels           = {}                   # Channels the client is in
+        self.oper               = None                 # Assign an IRCOperator object if user opers up
+        self.remote             = False                # User is known to us through a server link
+        self.host               = client_address       # Client's hostname / ip.
+        self.rhost              = lookup(self.host[0]) # This users rdns. May return None.
+        self.modes              = {'x':1}              # Usermodes set on the client
+        self.supported_modes    = {                    # Uppercase modes are oper-only
+            'A':"IRC Administrator.",
+#           'b':"Bot.",
+            'D':"Deaf. User does not recieve channel messages.",
+            'H':"Hide ircop line in /whois.",
+#           'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
+#           'N':"Network Administrator.",
+            'O':"IRC Operator.",
+#           'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
+#           'p':"Hidden Channels. Hides the channels line in the users /whois",
+            'Q':"Kick Block. Cannot be /kicked from channels.",
+            'S':"See Hidden Channels. Allows the IRC operator to see +p and +s channels in /list",
+            'W':"Wallops. Recieve connect, disconnect and traceback notices.",
+#           'X':"Whois Notification. Allows the IRC operator to see when users /whois him or her.",
+            'x':"Masked hostname. Hides the users hostname or IP address from other users.",
+            'Z':"SSL connection."
+        }
+
         # Keeps the hostmask unique which keeps bans functioning:
         self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(self.host[0])]
         SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
