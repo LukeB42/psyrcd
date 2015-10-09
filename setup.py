@@ -44,13 +44,6 @@ def install():
 		keywords=["irc", "ircd"]
 	)
 
-	if os.path.exists('/etc/systemd/system'):
-		print "Installing systemd service definition."
-		shutil.copyfile("psyrcd.service","/etc/systemd/system/psyrcd.service")
-	else:
-		print "Installing init script to /etc/init.d/psyrcd"
-		shutil.copyfile("psyrcd","/etc/init.d/psyrcd")
-
 	print "Moving psyrcd.py to /usr/bin/psyrcd"
 	shutil.copyfile("./psyrcd.py", "/usr/bin/psyrcd")
 
@@ -58,6 +51,16 @@ def install():
 	os.chmod("/usr/bin/psyrcd", 0755)
 	print 'Check "psyrcd --help" for options.'
 
+	if os.path.exists('/etc/systemd/system'):
+		init_path = '/etc/systemd/system'
+		print "Installing systemd service definition."
+		shutil.copyfile("psyrcd.service", init_path+"/psyrcd.service")
+		print "Please define a user for the --run-as paramater in %s/psyrcd.service" % init_path
+	else:
+		init_path = '/etc/init.d'
+		print "Installing init script to %s/psyrcd" % init_path
+		shutil.copyfile("psyrcd", init_path+"/psyrcd")
+		print "Please define a user for the --run as parameter in %s/psyrcd" % init_path
 
 def uninstall():
 
