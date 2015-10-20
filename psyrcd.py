@@ -627,6 +627,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if client:  client.send_queue.append(message)
 
     def msg(self, params):
+        """
+        Quickly transmit server notices to client connections.
+        """
         if self in self.server.clients.values():
             self.request.send(':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params))
         else:
@@ -659,7 +662,45 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     message = ':%s PRIVMSG %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
                 for client in channel.clients:
                     if client != self and not 'D' in client.modes:
-                        self.broadcast(client.nick,message)
+                        self.broadcast(client.nick, message)
+            else:
+                raise IRCError(ERR_NOSUCHNICK, '%s' % target)
+        else:
+            # Message to user
+            client = self.server.clients.get(target, None)
+            if client: self.broadcast(client.nick,message)
+            else: raise IRCError(ERR_NOSUCHNICK, '%s' % target)
+
+    @scripts
+    def handle_notice(self, params):
+        """
+        Handle sending a notice to a user or channel.
+        """
+#        The reason this doesn't call handle_privmsg specifying it's actually
+#        a NOTICE is because the way the @scripts decorator locks default
+#        arguments in.
+        self.last_activity = str(time.time())[:10] 
+        if not ' ' in params: raise IRCError(ERR_NEEDMOREPARAMS, ':NOTICE Not enough parameters')
+        target, msg = params.split(' ', 1)
+
+        message = ':%s NOTICE %s %s' % (self.client_ident(), target, msg)
+        if target.startswith('#'):
+            # Message to channel. Check if the channel exists.
+            channel = self.server.channels.get(target)
+            if channel:
+                if not channel.name in self.channels:
+                    # The user isn't in the channel.
+                    raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
+                if 'm' in channel.modes:
+                    if self.nick not in channel.modes['v'] and self.nick not in channel.modes['h'] \
+                    and self.nick not in channel.modes['o'] and self.nick not in channel.modes['a'] \
+                    and self.nick not in channel.modes['q'] and not self.oper:
+                        raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' % (channel.name, channel.name))
+                if 'r' in channel.modes:
+                    message = ':%s NOTICE %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
+                for client in channel.clients:
+                    if client != self and not 'D' in client.modes:
+                        self.broadcast(client.nick, message)
             else:
                 raise IRCError(ERR_NOSUCHNICK, '%s' % target)
         else:
