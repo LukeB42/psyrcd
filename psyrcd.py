@@ -39,25 +39,31 @@
 #   - /operserv scripts unload scriptname    Unloads the specified file by executing its code object with 'init' set to False.
 #                                            This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
 #
-#   - namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}
-#   - Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
+#   - Possible namespaces: {'client':self,'channel':channel,<'mode':mode/'params':params>,<'set':bool,'args':args/'display':True>,<'line':line,'func':func>}
+#   - Modes can be any number of characters long.
+#   - Mode arguments are stored in lists by default.
+#   - Modes are entries in a dictionary called channel.modes and user.modes.
 #   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list or whatever structure your script manually sets.
 #   - The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
-#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: /mode #channel +numpy:123,456,789,0
+#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: /mode #channel +numpy:123,456,789
 #   - /mode #channel -numpy: would clear the mode completely, rather than removing individual parameters and then the mode itself.
-#   - init and unload ought to cause the script to create or remove structures on channels and clients.
-#   - Modes on load are automatically appended to the necessary supported_modes dictionary and removed on unload.
+#   - init and unload are intended to cause scripts to create or remove structures on channels and clients.
+#   - Modes are automatically appended to the appropriate type of supported_modes dictionary and removed on unload.
 #   - Mode scripts can check for the presence of a variable named "display" in their namespace in order to return custom messages in a variable named "output".
-#   - @scripts decorator cycles through modes and match to server.scripts.u/cmodes.keys().
+#   - The @scripts decorator cycles through modes and match to server.scripts.u/cmodes.keys().
 #   - Every time a channel name is the target of a command its modes are checked against IRCServer.Scripts.cmodes.
 #   - Decorator on handle_* will send `self,channel,func,params` into your scripts default namespace.
 #   - For example: /mode #channel +lang:en
 #   - channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 # The Future:
 #   - /operserv connect server:port key; generate key at runtime.
+#   - State, Events, Policy, Action, Mechanism..
+#   - self.event("NICKCHANGE", user.jsonify()) eager synchronization
+#   - self.broadcast(remote_user, message)     lazy  synchronization
 #   - Connect and negotiate as a server, hand connection off to dedicated class.
 #   - Someone is going to have to disable their scripts.
 #   - Determine the most elegant way of performing breadth-first search with as little stateful info as possible
+#   - Emulate IRCClient.request.send so that messages are routed to the appropriate server.
 #   - decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
@@ -80,7 +86,7 @@ MAX_TICKS     = [0,15]  # select()s through active connections before we start p
 
 OPER_USERNAME = os.environ.get('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
-                        # openssl rand -base64 32 | ./psyrcd --preload -f
+                        # openssl rand -base64 32 | psyrcd --preload -f
 
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
@@ -169,7 +175,7 @@ class IRCChannel(object):
             'p':"Private. Hides channel from /whois.",
             'r':"[redacted] Redacts usernames and replaces them with the first word in this line.", # supported_modes['r'].split()[0]
 #            'l':"Limited amount of users.",
-#            'k':"Password protected.",
+            'k':"Password protected.",
             's':"Secret. Hides channel from /list.",
             't':"Only operators may set the channel topic.",
 #            'z':"Only allow clients connected via SSL.",
@@ -842,14 +848,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
             channel = self.server.channels.setdefault(r_channel_name, IRCChannel(r_channel_name))
 
             # Check the channel isn't +i
-            if 'i' in channel.modes:
+            if 'i' in channel.modes and not self.oper:
                 if self.nick in channel.modes['i']:
                     channel.modes['i'].remove(self.nick)
                 else:
                     raise IRCError(ERR_INVITEONLYCHAN, ':%s' % channel.name)
 
+            # Check the channel isn't +k
+            if 'k' in channel.modes and not self.oper:
+                if len(params.split()) < 2 or not params.split()[1] in channel.modes['k']:
+                    raise IRCError(ERR_BADCHANNELKEY, '%s :Cannot join channel (+k) - bad key' % channel.name)
+
             # Check the channel isn't +OA
-            if ('O' in channel.modes and not self.oper) or ('A' in channel.modes and not self.oper):
+            if ('O' in channel.modes and not self.oper) or ('A' in channel.modes and not 'A' in self.modes):
                 raise IRCError(500, '%s :Must be an IRC operator' % channel.name)
 
             # Channel bans and exceptions
@@ -1843,11 +1854,12 @@ class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.scripts.server = self
 
 
-class IRCRemoteClient(IRCClient):
+class ForeignClient(IRCClient):
     """
     Foreign clients are structurally identical to the IRCClient class, with the
     exception that they're known to us through a remote Psyrcd instance that
-    could be multiple links away.
+    could be multiple links away. This includes emulating IRCClient.request in
+    order to route messages to the correct node in the network.
     """
     remote = True
     def __init__(self, request, client_address, server):
@@ -2113,7 +2125,7 @@ class Scripts(object):
                 return (provides,script)
             return provides
 
-def sha1sum(text): return(hashlib.sha1(text).hexdigest())
+def sha1sum(data): return(hashlib.sha1(data).hexdigest())
 
 class tabulate(object):
     "Print a list of dictionaries as a table"
@@ -2151,11 +2163,11 @@ def format(data):
 
 def tconv(seconds):
     minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
-    weeks, days = divmod(days, 7)
-    months, weeks = divmod(weeks, 4)
-    years, months = divmod(months, 12)
+    hours, minutes   = divmod(minutes, 60)
+    days, hours      = divmod(hours, 24)
+    weeks, days      = divmod(days, 7)
+    months, weeks    = divmod(weeks, 4)
+    years, months    = divmod(months, 12)
     s=""
     if years:
         if years == 1: s+= "%i year, " % (years)
