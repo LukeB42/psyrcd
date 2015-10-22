@@ -78,14 +78,14 @@ def transmit_feed(feed):
 		emsg("\x033%s\x0F" % feed['name'], 2)
 	else:
 		emsg("%s" % feed['name'], 2)
-	emsg("      Created: %s" % created, 2)
+	emsg("          URL: %s" % feed['url'], 2)
 	if feed['running'] == True:
 		emsg("      Running: \x033%s\x0F" % (feed['running']), 2)
 	elif feed['running'] == False:
 		emsg("      Running: \x031%s\x0F" % (feed['running']), 2)
 	else:
 		emsg("      Running: \x0314Unknown\x0F", 2)
-	emsg("          URL: %s" % feed['url'], 2)
+	emsg("      Created: %s" % created, 2)
 	emsg("     Schedule: %s" % feed['schedule'], 2)
 	emsg("Article count: %s" % "{:,}".format(feed['article_count']), 2)
 

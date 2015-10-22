@@ -29,7 +29,7 @@
 
 # Todo:
 #   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
-#   - Implement /notice and possibly /userhost
+#   - Implement /userhost
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
 # Scripting:
@@ -677,7 +677,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Handle sending a notice to a user or channel.
         """
 #        The reason this doesn't call handle_privmsg specifying it's actually
-#        a NOTICE is because the way the @scripts decorator locks default
+#        a NOTICE is because of the way the @scripts decorator locks default
 #        arguments in.
         self.last_activity = str(time.time())[:10] 
         if not ' ' in params: raise IRCError(ERR_NEEDMOREPARAMS, ':NOTICE Not enough parameters')
