@@ -514,9 +514,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #               if self.remote:
 #                   self.request.send(self.nick, message)
             while self.send_queue:
-                msg = self.send_queue.pop(0)
+                msg = self.send_queue.pop(0).decode('utf-8', 'ignore')
                 logging.debug('to %s: %s' % (self.client_ident(), msg))
-                self.request.send(msg.encode('utf-8','ignore') + '\n')
+                self.request.send(msg.encode("utf-8", "ignore") + '\n')
 
             # See if the client has any commands for us.
             if len(ready_to_read) == 1 and ready_to_read[0] == self.request:
@@ -883,7 +883,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             # Check the server isn't full.
             if new_channel and len(self.server.channels) >= MAX_CHANNELS:
                 response = ':%s PART :%s' % (self.client_ident(True), r_channel_name)
-                self.broadcast(self.nick,response)
+                self.broadcast(self.nick, response)
                 raise IRCError(500, '%s :Cannot join channel (channel limit has been met)' % r_channel_name)
 
             channel = self.server.channels.setdefault(r_channel_name, IRCChannel(r_channel_name))
