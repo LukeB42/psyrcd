@@ -71,7 +71,7 @@
 import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.16"
+SRV_VERSION     = "psyrcd-0.17"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME

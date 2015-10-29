@@ -1,5 +1,5 @@
 [Unit]
-Description=Psyrcd the Psybernetics IRC Server
+Description=Psyrcd The Psybernetics IRC Server
 
 [Service]
 ExecStart=/usr/bin/psyrcd
