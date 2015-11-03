@@ -348,19 +348,17 @@ class IRCOperator(object):
         """
         Permits an IRC Operator to force a client to JOIN a channel.
         """
-        if self.oper:
-            target, channel = params.split()
-            victim = self.server.clients.get(target)
-            if victim: victim.handle_join(channel)
+        target, channel = params.split()
+        victim = self.client.server.clients.get(target)
+        if victim: victim.handle_join(channel)
 
     def handle_sapart(self,params):
         """
         Permits an IRC Operator to force a client to PART a channel.
         """
-        if self.oper:
-            target, channel = params.split()
-            victim = self.server.clients.get(target)
-            if victim: victim.handle_part(channel)
+        target, channel = params.split()
+        victim = self.server.clients.get(target)
+        if victim: victim.handle_part(channel)
 
     def handle_sjoin(self,params):
         """
