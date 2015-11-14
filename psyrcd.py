@@ -357,7 +357,7 @@ class IRCOperator(object):
         Permits an IRC Operator to force a client to PART a channel.
         """
         target, channel = params.split()
-        victim = self.server.clients.get(target)
+        victim = self.client.server.clients.get(target)
         if victim: victim.handle_part(channel)
 
     def handle_sjoin(self,params):
