@@ -512,9 +512,13 @@ class IRCClient(SocketServer.BaseRequestHandler):
 #               if self.remote:
 #                   self.request.send(self.nick, message)
             while self.send_queue:
-                msg = self.send_queue.pop(0).decode('utf-8', 'ignore')
+                msg = self.send_queue.pop(0)
+                try:
+                    msg = msg.encode('utf-8', 'ignore')
+                except UnicodeDecodeError:
+                    pass
                 logging.debug('to %s: %s' % (self.client_ident(), msg))
-                self.request.send(msg.encode("utf-8", "ignore") + '\n')
+                self.request.send(msg + '\n')
 
             # See if the client has any commands for us.
             if len(ready_to_read) == 1 and ready_to_read[0] == self.request:
