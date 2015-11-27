@@ -34,8 +34,13 @@ if 'display' in dir():
     # The structure in channel.modes is a list where
     # the zeroth element is the duration between changes, in minutes
     # and the first element is the timestamp of the previous change.
-    p      = channe.modes[MODE_NAME][1]
-    output = "(Next selection in %i minutes.)"
+    # Duration
+    d      = int(channel.modes[MODE_NAME][0]) * 60
+    # Elapsed
+    e      = int(time.time()) - channel.modes[MODE_NAME][1]
+    # Minutes to election
+    m      = int((d - e) / 60)
+    output = "(Next election in %i minute%s.)" % (m, 's' if m > 1 else '')
 
 if 'set' in dir():
     if set:
