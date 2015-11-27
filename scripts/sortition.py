@@ -21,12 +21,6 @@ import random
 MODE_NAME  = "sortition"
 SRV_DOMAIN = cache['config']['SRV_DOMAIN']
 
-def smsg(channel, msg):
-    for client in channel.clients:
-        break
-    client.broadcast(channel.name, ':%s NOTICE %s :%s\n' % \
-        (SRV_DOMAIN, channel.name, msg)) 
-
 if 'init' in dir():
     provides = "cmode:%s:Implements administrative sortition." % MODE_NAME
 
@@ -43,12 +37,14 @@ if 'display' in dir():
     e      = int(time.time()) - channel.modes[MODE_NAME][1]
     # Minutes to election
     m      = int((d - e) / 60)
+    if m  == 0: m += 1
     output = "(Next election in %i minute%s.)" % (m, 's' if m > 1 else '')
 
+# Randomly elected operators can alter the duration but can't remove the mode.
 if 'set' in dir():
     if set:
         if not args:
-            message = "Please specify a duration in minutes. Eg: +sortition:20"
+            message = "Please specify a duration in minutes. Eg: +%s:20" % MODE_NAME
             client.broadcast(client.nick, ':%s NOTICE %s :%s\n' % \
                 (SRV_DOMAIN, client.nick, message))
             cancel = True
@@ -60,7 +56,8 @@ if 'set' in dir():
         if client.oper or client.client_ident(True) == ident:
             del channel.modes[MODE_NAME]
         else:
-            message = "You must be an IRC Operator or %s to unset +sortition from %s." % (ident, channel.name)
+            message = "You must be an IRC Operator or %s to unset +%s from %s." % \
+                (ident, MODE_NAME, channel.name)
             client.broadcast(client.nick, ':%s NOTICE %s :%s\n' % \
                 (SRV_DOMAIN, client.nick, message))
             cancel = True
@@ -72,9 +69,7 @@ if 'func' in dir():
     if (now-then) >= duration:
         channel.modes[MODE_NAME][1] = now
         # Select a new administration
-        count = len(channel.clients)
-        count = count / 4
-        
+        count = len(channel.clients) / 4
         if count == 0: count += 1
 
         administration = random.sample(channel.clients, count)
@@ -85,7 +80,8 @@ if 'func' in dir():
         # Remove existing channel operators
         for o in channel.ops:
             for n in o:
-                client.broadcast(channel.name, ':%s MODE %s: -qaohv %s' % (SRV_DOMAIN, channel.name, n))
+                client.broadcast(channel.name, ':%s MODE %s: -qaohv %s' % \
+                    (SRV_DOMAIN, channel.name, n))
             del o[:]
 
         # Instate the new administration
