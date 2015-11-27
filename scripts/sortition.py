@@ -32,8 +32,11 @@ if 'init' in dir():
 
 if 'display' in dir():
     # The structure in channel.modes is a list where
-    # the zeroth element is the duration between changes, in minutes
-    # and the first element is the timestamp of the previous change.
+    # the zeroth element is the duration between changes, in minutes,
+    # the first element is the timestamp of the previous change and
+    # the second element is the cloaked hostmask of the user who set
+    # the mode initially. This prevents randomly elected chan ops from
+    # doing away with sortition.
     # Duration
     d      = int(channel.modes[MODE_NAME][0]) * 60
     # Elapsed
@@ -50,9 +53,17 @@ if 'set' in dir():
                 (SRV_DOMAIN, client.nick, message))
             cancel = True
         else:
-            channel.modes[MODE_NAME] = [int(args[0]),0]
+            # Duration in minutes, last change, clients' cloaked ident
+            channel.modes[MODE_NAME] = [int(args[0]), 0, client.client_ident(True)]
     else:
-        del channel.modes[MODE_NAME]
+        ident = channel.modes[MODE_NAME][2]
+        if client.oper or client.client_ident(True) == ident:
+            del channel.modes[MODE_NAME]
+        else:
+            message = "You must be an IRC Operator or %s to unset +sortition from %s." % (ident, channel.name)
+            client.broadcast(client.nick, ':%s NOTICE %s :%s\n' % \
+                (SRV_DOMAIN, client.nick, message))
+            cancel = True
 
 if 'func' in dir():
     duration = int(channel.modes[MODE_NAME][0]) * 60

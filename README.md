@@ -17,7 +17,7 @@ A NickServ and ChanServ are included as scripts.
 
 Tested with Python 2.7 on Linux 2.6 to 3.14.
 
-#### Ceaveat lector
+#### Caveat lector
 
 Will probably only ever run on Python 2.x.
 
