@@ -71,7 +71,7 @@
 import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.17"
+SRV_VERSION     = "psyrcd-0.18"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -2122,8 +2122,8 @@ class Scripts(object):
                                     del channel.supported_modes[i]
                                 if i in channel.modes:
                                     # ns={'set':False}
+                                    if client: client.broadcast(channel.name,':%s MODE %s -%s' % (SRV_DOMAIN, channel.name, i))
                                     del channel.modes[script]
-                                    if client: client.broadcast('cmode:'+d[1],':%s MODE %s -%s' % (SRV_DOMAIN, channel.name, i))
                         del self.cmodes[i]
                         err = "Unloaded %s %s (%s)" % (d[0],i,description)
                         if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
@@ -2136,8 +2136,8 @@ class Scripts(object):
                                 if i in user.supported_modes:
                                     del user.supported_modes[i]
                                 if i in user.modes:
+                                    if client: client.broadcast(client.nick,':%s MODE %s -%s' % (SRV_DOMAIN, user.nick, i))
                                     del user.modes[i]
-                                    if client: client.broadcast('umode:'+i,':%s MODE %s -%s' % (SRV_DOMAIN, user.nick, i))
                     del self.umodes[i]
                     err = "Unloaded %s %s (%s)" % (d[0],i,description)
                     if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
