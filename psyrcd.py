@@ -71,7 +71,7 @@
 import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.18"
+SRV_VERSION     = "psyrcd-0.19"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -716,6 +716,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         Handle the initial setting of the user's nickname and nick changes.
         """
+        self.last_activity = str(time.time())[:10] 
         nick = params
         # Valid nickname?
         if re.search('[^a-zA-Z0-9\-\[\]\'`^{}_]', nick) or len(nick) > MAX_NICKLEN:
@@ -747,18 +748,18 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     (self.client_ident(True), self.nick, ''.join(self.modes.keys())))
             self.broadcast('umode:W',':%s NOTICE *: Client %s connected.' % (SRV_DOMAIN,self.client_ident()))
         else:
-            self.last_activity = str(time.time())[:10] 
             if self.server.clients.get(nick, None) == self:
                 # Already registered to user
-                return()
+                return
             else:
                 # Nick is available. Change the nick.
                 message = ':%s NICK :%s' % (self.client_ident(), nick)
 
+                # Briefly create two references to ourself with the server.
+                self.server.clients[nick] = self 
                 self.server.clients.pop(self.nick)
                 prev_nick = self.nick
                 self.nick = nick
-                self.server.clients[self.nick] = self 
 
                 # Carry oper, chanops and channel invites over.
                 if self.oper:
