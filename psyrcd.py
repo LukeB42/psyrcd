@@ -33,38 +33,23 @@
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
 # Scripting:
-#   - /operserv scripts                      Lists all loaded scripts. Indicates file modifications if --debug isn't being used.
+#   - /operserv scripts                      Lists all loaded scripts.
 #   - /operserv scripts list                 Lists all available scripts.
-#   - /operserv scripts load scriptname      Loads the specified file as a code object using a specific namespace, where a variable called 'init' is set to True.
-#   - /operserv scripts unload scriptname    Unloads the specified file by executing its code object with 'init' set to False.
-#                                            This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
+#   - /operserv scripts load scriptname      
 #
-#   - Possible namespaces: {'client':self,'channel':channel,<'mode':mode/'params':params>,<'set':bool,'args':args/'display':True>,<'line':line,'func':func>}
-#   - Modes can be any number of characters long.
-#   - Mode arguments are stored in lists by default.
-#   - Modes are entries in a dictionary called channel.modes and user.modes.
-#   - The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list or whatever structure your script manually sets.
-#   - The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
-#   - Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: /mode #channel +numpy:123,456,789
-#   - /mode #channel -numpy: would clear the mode completely, rather than removing individual parameters and then the mode itself.
-#   - init and unload are intended to cause scripts to create or remove structures on channels and clients.
-#   - Modes are automatically appended to the appropriate type of supported_modes dictionary and removed on unload.
-#   - Mode scripts can check for the presence of a variable named "display" in their namespace in order to return custom messages in a variable named "output".
-#   - The @scripts decorator cycles through modes and match to server.scripts.u/cmodes.keys().
-#   - Every time a channel name is the target of a command its modes are checked against IRCServer.Scripts.cmodes.
-#   - Decorator on handle_* will send `self,channel,func,params` into your scripts default namespace.
-#   - For example: /mode #channel +lang:en
-#   - channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
-# The Future:
-#   - /operserv connect server:port key; generate key at runtime.
-#   - State, Events, Policy, Action, Mechanism..
-#   - self.event("NICKCHANGE", user.jsonify()) eager synchronization
-#   - self.broadcast(remote_user, message)     lazy  synchronization
-#   - Connect and negotiate as a server, hand connection off to dedicated class.
-#   - Someone is going to have to disable their scripts.
-#   - Determine the most elegant way of performing breadth-first search with as little stateful info as possible
-#   - Emulate IRCClient.request.send so that messages are routed to the appropriate server.
-#   - decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
+#      Loads the specified file as a code object using a specific namespace,
+#      where a variable called 'init' is set to True.
+#
+#   - /operserv scripts unload scriptname 
+#
+#      Unloads the specified file by executing its code object with
+#      'init' set to False. This indicates that file handles in
+#      the cache must be closed and structures on affected objects
+#      ought to be removed.
+#
+#   Have a look at the doc/SCRIPTING.MD file to see some tips on creating
+#   channel modes.
+#
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
@@ -85,9 +70,10 @@ MAX_TOPICLEN  = 512     # Characters per channel topic.
 MAX_TICKS     = [0,15]  # select()s through active connections before we start pruning for ping timeouts
 
 OPER_USERNAME = os.environ.get('USER', None)
-OPER_PASSWORD = True    # Set to True to generate a random password, False to disable the oper system, a string of your choice or pipe one at runtime:
-                        # openssl rand -base64 32 | psyrcd --preload -f
-
+OPER_PASSWORD = True    # Set to True to generate a random password, False to
+                        # disable the oper system, a string of your choice or
+                        # pipe at runtime: openssl rand -base64 32 | psyrcd --preload -f
+# IRC numerics by name
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
 RPL_CREATED           = '003'
@@ -253,21 +239,27 @@ class IRCOperator(object):
         """
         # TODO: Phase this out in favour of /stats
         # TODO: Show modes, invites, excepts, bans.
-        response = ':%s NOTICE %s :Clients: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.clients)
+        response = ':%s NOTICE %s :Clients: %s' % \
+            (SRV_DOMAIN, self.client.nick, self.client.server.clients)
         self.client.broadcast(self.client.nick,response)
         for client in self.client.server.clients.values():
-            response = ':%s NOTICE %s :  %s' % (SRV_DOMAIN, self.client.nick, client)
+            response = ':%s NOTICE %s :  %s' % \
+                (SRV_DOMAIN, self.client.nick, client)
             self.client.broadcast(self.client.nick,response)
             for channel in client.channels.values():
-                response = ':%s NOTICE %s :    %s' % (SRV_DOMAIN, self.client.nick, channel.name)
+                response = ':%s NOTICE %s :    %s' % \
+                    (SRV_DOMAIN, self.client.nick, channel.name)
                 self.client.broadcast(self.client.nick,response)
-        response = ':%s NOTICE %s :Channels: %s' % (SRV_DOMAIN, self.client.nick, self.client.server.channels)
+        response = ':%s NOTICE %s :Channels: %s' % \
+            (SRV_DOMAIN, self.client.nick, self.client.server.channels)
         self.client.broadcast(self.client.nick,response)
         for channel in self.client.server.channels.values():
-            response = ':%s NOTICE %s :  %s %s' % (SRV_DOMAIN, self.client.nick, channel.name, channel)
+            response = ':%s NOTICE %s :  %s %s' % \
+                (SRV_DOMAIN, self.client.nick, channel.name, channel)
             self.client.broadcast(self.client.nick,response)
             for client in channel.clients:
-                response = ':%s NOTICE %s :    %s %s' % (SRV_DOMAIN, self.client.nick, client.nick, client)
+                response = ':%s NOTICE %s :    %s %s' % \
+                    (SRV_DOMAIN, self.client.nick, client.nick, client)
                 self.client.broadcast(self.client.nick,response)
 
     def handle_addoper(self,params):
@@ -291,6 +283,11 @@ class IRCOperator(object):
     def handle_scripts(self, params):
         """
         List, Load and Unload serverside scripts.
+
+        Use "/operserv scripts" to display the current state of the system.
+        Use "/operserv scripts list" to list the status of available scripts.
+        Use "/operserv scripts load filename" & "/operserv scripts unload filename"
+        for loading and unloading scripts.
         """
         if not 'A' in self.client.modes: return(': IRC Administrators only.')
         if ' ' in params: cmd, args = params.split(' ',1)

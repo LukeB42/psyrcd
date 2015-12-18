@@ -17,9 +17,11 @@ Fix TODO comments.
 
 This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
 
+Possible namespaces look like the following:
+
 namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}
 
- Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
+Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
 
 The structure on a channel or user object looks like user.modes['scriptmode'], where 'scriptmode' points to a list or whatever structure your script manually sets.
 
@@ -47,9 +49,13 @@ channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
 
 #The Future
 /operserv connect server:port key; generate key at runtime.
+
 Connect and negotiate as a server, hand connection off to dedicated class.
+
 Someone is going to have to disable their scripts.
+
 Determine the most elegant way of performing breadth-first search with as little stateful info as possible
+
 decorate .broadcast() so it transmits messages across server links. Recipients parse joins/parts/quits
 
 #Known Errors
