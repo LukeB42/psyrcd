@@ -1,6 +1,6 @@
 # Psyrcd
 
-A full IRCD in 60 seconds OR TRIPLE YOUR MONEY BACK:
+A full IRCD in 60 seconds or triple your money back:
 <pre>
 git clone https://github.com/LukeB42/psyrcd && cd psyrcd
 sudo python2 setup.py install
