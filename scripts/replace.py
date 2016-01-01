@@ -10,11 +10,11 @@
 #
 
 if 'init' in dir():
-    provides = "cmode:%s:Replaces unwanted phrases." % "G"
+    provides = "cmode:G:Replaces unwanted phrases."
 
 if 'display' in dir():
     if client.oper:
-        phrases = str(channel.modes['G'])
+        phrases = str(channel.modes["G"])
         output  = "phrase%s: %s" % ('s' if len(phrases) > 1 else '', phrases)
 
 if 'set' in dir():
