@@ -37,13 +37,15 @@ class Channel(object):
         self.channel = channel
         self.db = cache['db']
         self.c = self.db.cursor()
-        self.c.execute("SELECT * FROM %s WHERE channel=?" % TABLE, (self.channel,))
+        self.c.execute("SELECT * FROM %s WHERE channel=?" % \
+            TABLE, (self.channel,))
         self.r = self.c.fetchone()
         if not self.r:
             self.channel = ''
 
     def __getitem__(self, key):
-        self.c.execute("SELECT * FROM %s WHERE channel=?" % TABLE, (self.channel,))
+        self.c.execute("SELECT * FROM %s WHERE channel=?" % \
+            TABLE, (self.channel,))
         self.r = self.c.fetchone()
         if self.r and key in self.r.keys():
              if key in ['operators', 'modes', 'bans', 'protected']:
@@ -174,7 +176,8 @@ def init_channel(client, channel):
         r = cur.fetchone()
         if not r:
             if c['successor']:
-                cur.execute("SELECT * FROM %s WHERE nick=?" % NS_TABLE, (c['successor'],))
+                cur.execute("SELECT * FROM %s WHERE nick=?" % \
+                    NS_TABLE, (c['successor'],))
                 s = cur.fetchone()
                 if s:
                     c['owner'] = c['successor']

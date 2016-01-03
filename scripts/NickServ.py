@@ -337,11 +337,11 @@ if 'command' in dir():
             password = hashlib.sha1(password).hexdigest()
             db = cache['db']
             c = db.cursor()
-            c.execute("SELECT * FROM %s WHERE nick='%s'" % TABLE, (nick,))
+            c.execute("SELECT * FROM %s WHERE nick=?" % TABLE, (nick,))
             r = c.fetchone()
             if not r: nsmsg("\x02%s\x0F isn't registered." % nick)
             else:
-                c.execute("UPDATE %s SET password='%s' WHERE nick='%s'" % \
+                c.execute("UPDATE %s SET password=? WHERE nick=?" % \
                     TABLE, (password, nick))
                 nsmsg("Changed password for \x02%s\x0F." % escape(nick))
             del db,c,r
@@ -449,7 +449,7 @@ if 'command' in dir():
             else:
                 # IRC Operators can supply anything as a password.
                 if client.oper or (r['password'] == password):
-                    c.execute("DELETE FROM %s WHERE nick='%s'" % \
+                    c.execute("DELETE FROM %s WHERE nick=?" % \
                         TABLE, (nick,))
                     db.commit()
                     nsmsg("\x02%s\x0F has been dropped." % nick)
