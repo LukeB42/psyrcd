@@ -2309,28 +2309,28 @@ if __name__ == "__main__":
     parser = optparse.OptionParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
     parser.set_usage(sys.argv[0] + " -f --preload --debug")
 
-    parser.add_option("--start", dest="start", action="store_true", default=True, help="(default)")
-    parser.add_option("--stop", dest="stop", action="store_true", default=False)
-    parser.add_option("--restart", dest="restart", action="store_true", default=False)
-    parser.add_option("--pidfile", dest="pidfile", action="store", default='psyrcd.pid')
-    parser.add_option("--logfile", dest="logfile", action="store", default=None)
-    parser.add_option("-a", "--address", dest="listen_address", action="store", default='0.0.0.0')
-    parser.add_option("-p", "--port", dest="listen_port", action="store", default='6667')
+    parser.add_option("--start",            dest="start", action="store_true", default=True, help="(default)")
+    parser.add_option("--stop",             dest="stop", action="store_true", default=False)
+    parser.add_option("--restart",          dest="restart", action="store_true", default=False)
+    parser.add_option("--pidfile",          dest="pidfile", action="store", default='psyrcd.pid')
+    parser.add_option("--logfile",          dest="logfile", action="store", default=None)
+    parser.add_option("-a", "--address",    dest="listen_address", action="store", default='0.0.0.0')
+    parser.add_option("-p", "--port",       dest="listen_port", action="store", default='6667')
     parser.add_option("-f", "--foreground", dest="foreground", action="store_true")
-    parser.add_option("--run-as", dest="run_as",action="store", default=None, help="(defaults to the invoking user)")
-    parser.add_option("--scripts-dir", dest="scripts_dir",action="store", default='scripts', help="(defaults to ./scripts/)")
-    parser.add_option("--preload", dest="preload", action="store_true",default=False, help="Preload all available scripts.")
-    parser.add_option("--debug", dest="debug", action="store_true",default=False, help="Sets read_on_exec to True for live development.")
-    parser.add_option("-k", "--key", dest="ssl_key",action="store", default=None)
-    parser.add_option("-c", "--cert", dest="ssl_cert",action="store", default=None)
-    parser.add_option("--ssl-help", dest="ssl_help",action="store_true",default=False)
+    parser.add_option("--run-as",           dest="run_as", action="store", default=None, help="(defaults to the invoking user)")
+    parser.add_option("--scripts-dir",      dest="scripts_dir",action="store", default='scripts', help="(defaults to ./scripts/)")
+    parser.add_option("--preload",          dest="preload", action="store_true",default=False, help="Preload all available scripts.")
+    parser.add_option("--debug",            dest="debug", action="store_true",default=False, help="Sets read_on_exec to True for live development.")
+    parser.add_option("-k", "--key",        dest="ssl_key", action="store", default=None)
+    parser.add_option("-c", "--cert",       dest="ssl_cert", action="store", default=None)
+    parser.add_option("--ssl-help",         dest="ssl_help", action="store_true",default=False)
 #    parser.add_option("--link-help", dest="link_help",action="store_true",default=False)
     (options, args) = parser.parse_args()
 
     if options.ssl_help:
         print """Keys and certs can be generated with:
-$ %sopenssl%s genrsa 1024 >%s key%s
-$ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" % \
+$ %sopenssl%s genrsa 4096 >%s key%s
+$ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s""" % \
 (color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end)
         raise SystemExit
 
