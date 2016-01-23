@@ -2330,8 +2330,8 @@ if __name__ == "__main__":
 
     if options.ssl_help:
         print """Keys and certs can be generated with:
-$ %sopenssl%s genrsa 1024 >%s key%s
-$ %sopenssl%s req -new -x509 -nodes -sha1 -days 365 -key %skey%s > %scert%s""" % \
+$ %sopenssl%s genrsa 4096 >%s key%s
+$ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s""" % \
 (color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end)
         raise SystemExit
 
