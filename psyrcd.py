@@ -168,15 +168,15 @@ class IRCChannel(object):
 #            'z':"Only allow clients connected via SSL.",
         }
         self.modes = {
-            'n':1,
-            't':1,
-            'v':[],
-            'h':[],
-            'o':[],
-            'a':[],
-            'q':[],
-            'b':[],
-            'e':[]
+            'n': 1,
+            't': 1,
+            'v': [],
+            'h': [],
+            'o': [],
+            'a': [],
+            'q': [],
+            'b': [],
+            'e': []
         }
         self.ops = [self.modes['v'],self.modes['h'],self.modes['o'],self.modes['a'],self.modes['q']]
 #     # modes['b'] ==> 'mask_regex setter_nick unix_time' -> i.split()[0]
@@ -191,7 +191,7 @@ class IRCOperator(object):
     """
     Object holding stateful info and commands relevant to policing the server from inside.
     """
-    def __init__(self,client):
+    def __init__(self, client):
         self.client = client    # So we can access everything relavent to this oper
         self.vhost = "internet"
         self.modes = ['O','Q','S','W'] # Set on client once authed
@@ -210,14 +210,14 @@ class IRCOperator(object):
                 command = None
                 handler = getattr(self, 'handle_%s' % (params.lower()))
             response = handler(params)
-            return(response)
+            return response
         except Exception, e:
-            return('Internal Error: %s' % e)
+            return 'Internal Error: %s' % e
 
     def handle_seval(self, params):
         if 'A' in self.client.modes:
             message = ': %s' % (eval(params))
-            return(message)
+            return message
 
     def handle_setkey(self, params):
         """
@@ -242,22 +242,24 @@ class IRCOperator(object):
         # TODO: Show modes, invites, excepts, bans.
         response = ':%s NOTICE %s :Clients: %s' % \
             (SRV_DOMAIN, self.client.nick, self.client.server.clients)
-        self.client.broadcast(self.client.nick,response)
+        self.client.broadcast(self.client.nick, response)
+        
         for client in self.client.server.clients.values():
             response = ':%s NOTICE %s :  %s' % \
                 (SRV_DOMAIN, self.client.nick, client)
-            self.client.broadcast(self.client.nick,response)
+            self.client.broadcast(self.client.nick, response)
+            
             for channel in client.channels.values():
                 response = ':%s NOTICE %s :    %s' % \
                     (SRV_DOMAIN, self.client.nick, channel.name)
-                self.client.broadcast(self.client.nick,response)
+                self.client.broadcast(self.client.nick, response)
         response = ':%s NOTICE %s :Channels: %s' % \
             (SRV_DOMAIN, self.client.nick, self.client.server.channels)
-        self.client.broadcast(self.client.nick,response)
+        self.client.broadcast(self.client.nick, response)
         for channel in self.client.server.channels.values():
             response = ':%s NOTICE %s :  %s %s' % \
                 (SRV_DOMAIN, self.client.nick, channel.name, channel)
-            self.client.broadcast(self.client.nick,response)
+            self.client.broadcast(self.client.nick, response)
             for client in channel.clients:
                 response = ':%s NOTICE %s :    %s %s' % \
                     (SRV_DOMAIN, self.client.nick, client.nick, client)
@@ -290,33 +292,51 @@ class IRCOperator(object):
         Use "/operserv scripts load filename" & "/operserv scripts unload filename"
         for loading and unloading scripts.
         """
-        if not 'A' in self.client.modes: return(': IRC Administrators only.')
-        if ' ' in params: cmd, args = params.split(' ',1)
-        else: cmd=params;args=''
+        if not 'A' in self.client.modes:
+            return ": IRC Administrators only."
+        if ' ' in params:
+            cmd, args = params.split(' ', 1)
+        else:
+            cmd = params
+            args = ''
+        
         s = self.client.server.scripts
-        if cmd == 'scripts': # /operserv scripts (lists loaded)
+        
+        # /operserv scripts (list what's loaded)
+        if cmd == 'scripts':
             tmp=data=[]
             for type, array in s.i.items():
                 for name, script in array.items():
                     tmp = {}
-                    if type == 'commands': tmp['Name'] = '/'+name
-                    if type == 'umodes':   tmp['Name'] = 'umode:'+name
-                    if type == 'cmodes':   tmp['Name'] = 'cmode:'+name
+                    if type == 'commands':
+                        tmp['Name'] = '/'+name
+                    if type == 'umodes':
+                        tmp['Name'] = 'umode:'+name
+                    if type == 'cmodes':
+                        tmp['Name'] = 'cmode:'+name
                     tmp['Descripton'] = script[1]
                     tmp['File'] = script[0].file.split(os.path.sep)[-1]
+                    
                     if not options.debug:
-                        f=file(script[0].file,'r')
+                        f    = file(script[0].file,'r')
                         hash = sha1sum(f.read())
                         f.close()
-                        if hash != script[0].hash: tmp['File'] = tmp['File'] + '*'
+                        # Add an asterisk next to the filename if modified.
+                        if hash != script[0].hash:
+                            tmp['File'] = tmp['File'] + '*'
                     tmp['Hash'] = script[0].hash
                     data.append(tmp)
-            fmt = format(data)
+            
+            fmt   = format(data)
             table = tabulate(fmt, ul='-')(data)
-            if not table: table = "There are no scripts loaded."
-            for line in table.split('\n'): self.client.msg(line)
-            del fmt,table,data,tmp
-        elif cmd == 'list': # /operserv scripts list (lists available)
+            if not table:
+                table = "There are no scripts loaded."
+            for line in table.split('\n'):
+                self.client.msg(line)
+            del fmt, table, data, tmp
+        
+        # /operserv scripts list (list what's available)
+        elif cmd == 'list':
             data=[]
             if s.dir:
                 files = os.listdir(s.dir)
@@ -331,14 +351,19 @@ class IRCOperator(object):
                                 tmp['State'] = 'LOADED'
                                 break
                     data.append(tmp)
-                fmt = format(data)
+                fmt   = format(data)
                 table = tabulate(fmt, ul='-')(data)
-                if not table: table = "There are no scripts in %s." % s.dir
-                for line in table.split('\n'): self.client.msg(line)
-                del fmt,table,data,tmp
-            else: self.client.msg('A nonexistent path was defined as the scripts directory.')
+                if not table:
+                    table = "There are no scripts in %s." % s.dir
+                for line in table.split('\n'):
+                    self.client.msg(line)
+                del fmt, table, data, tmp
+            else:
+                self.client.msg('A nonexistent path was defined as the scripts directory.')
+        
         elif cmd == 'load':
             s.load(args, self.client)
+        
         elif cmd == 'unload':
             s.unload(args, self.client)
 
@@ -377,38 +402,49 @@ def scripts(func):
 
         for mode in self.modes.copy():
             params=''
-            if args: params=str(args[0])
+            if args:
+                params = str(args[0])
             if mode in s.umodes:
                 script = s.umodes[mode][0]
                 try:
-                    script.execute({'client':self,'params':params,'mode':mode,'func':func})
-                    if 'cancel' in script.env: return()
-                    if 'params' in script.env: args=(script['params'],)
+                    script.execute({'client': self, 'params': params, 'mode': mode, 'func': func})
+                    if 'cancel' in script.env:
+                        return
+                    if 'params' in script.env:
+                        args = (script['params'],)
                 except Exception, err:
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                    (SRV_DOMAIN,self.client_ident(),err,script.file))
+                        (SRV_DOMAIN,self.client_ident(), err, script.file))
 
         if params.startswith('#'):
-            if ' ' in params: channel = self.server.channels.get(params.split()[0])
-            else: channel = self.server.channels.get(params)
+            if ' ' in params:
+                channel = self.server.channels.get(params.split()[0])
+            else:
+                channel = self.server.channels.get(params)
             if channel:
                 for mode in channel.modes.copy():
-                    params=''
-                    if args: params=str(args[0])
+                    params = ''
+                    if args:
+                        params = str(args[0])
+                    
                     if mode in s.cmodes:
                         script = s.cmodes[mode][0]
                         try:
-                            script.execute({'client':self,'channel':channel,'params':params,'mode':mode,'func':func})
+                            script.execute({'client': self, 'channel': channel, 'params': params, 'mode': mode, 'func': func})
                             if 'cancel' in script.env:
-                                if type(script['cancel']) == str: return(script['cancel'])
-                                else: return('')
-                            if 'params' in script.env: args=(script['params'],)
+                                if isinstance(script['cancel'], (str, unicode)):
+                                    return(script['cancel'])
+                                else:
+                                    return('')
+                            if 'params' in script.env:
+                                args = (script['params'],)
                         except Exception, err:
                             logging.error('%s in %s' % (err,script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                            (SRV_DOMAIN,self.client_ident(),err,script.file))
-        return(func(self, *args))
+                                (SRV_DOMAIN,self.client_ident(), err, script.file))
+        return func(self, *args)
+    
     wrapper.__doc__ = func.__doc__
     return(wrapper)
 
