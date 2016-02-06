@@ -28,7 +28,8 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 # Todo:
-#   - Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
+#   - Check the PID file on startup. Issue a warning and raise SystemExit 
+#     if psyrcd is already running.
 #   - Implement /userhost
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
@@ -473,7 +474,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         logging.info('Client connected: %s' % self.host[0])
 
         # TLS here. TODO: Recognise other SSL handshakes.
-        if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16,socket.MSG_PEEK)):
+        if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16, socket.MSG_PEEK)):
             logging.info('%s is using SSL.' % self.host[0])
             if options.ssl_cert and options.ssl_key:
                 self.request = ssl.wrap_socket(self.request,
@@ -595,10 +596,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
             channel = self.server.channels.get(target)
             if channel:
                 [client.send_queue.append(message) for client in channel.clients if not 'D' in client.modes]
+        
         elif target.startswith('ident:'):
             rhost = re_to_irc(target.split(':')[1],False)
             [client.send_queue.append(message) for client in self.server.clients.values() \
-                if re.match(rhost,c.client_ident(True))]
+                if re.match(rhost, c.client_ident(True))]
+        
         elif target.startswith('umode:'):
             umodes = target.split(':')[1]
             for client in self.server.clients.values():
@@ -608,6 +611,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         if mode in client.modes:
                             client.send_queue.append(message)
                             break
+        
         elif target.startswith('cmode:'):
             cmodes = target.split(':')[1]
             for channel in self.server.channels.values():
@@ -621,9 +625,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             for client in channel.clients:
                                 client.send_queue.append(message)
                             break
+        
         else:
             client = self.server.clients.get(target)
-            if client:  client.send_queue.append(message)
+            if client:
+                client.send_queue.append(message)
 
     def msg(self, params):
         """
@@ -633,7 +639,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
             self.request.send(':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params))
         else:
             client = self.server.clients.get(self.nick)
-            if client:  client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, params))
+            if client:
+                client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, params))
 
     @scripts
     def handle_privmsg(self, params):
@@ -641,10 +648,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Handle sending a private message to a user or channel.
         """
         self.last_activity = str(time.time())[:10] 
-        if not ' ' in params: raise IRCError(ERR_NEEDMOREPARAMS, ':PRIVMSG Not enough parameters')
+        if not ' ' in params:
+            raise IRCError(ERR_NEEDMOREPARAMS, ':PRIVMSG Not enough parameters')
+        
         target, msg = params.split(' ', 1)
-
         message = ':%s PRIVMSG %s %s' % (self.client_ident(), target, msg)
+        
         if target.startswith('#'):
             # Message to channel. Check if the channel exists.
             channel = self.server.channels.get(target)
@@ -652,13 +661,16 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 if not channel.name in self.channels:
                     # The user isn't in the channel.
                     raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
+                
                 if 'm' in channel.modes:
                     if self.nick not in channel.modes['v'] and self.nick not in channel.modes['h'] \
                     and self.nick not in channel.modes['o'] and self.nick not in channel.modes['a'] \
                     and self.nick not in channel.modes['q'] and not self.oper:
                         raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' % (channel.name, channel.name))
+                
                 if 'r' in channel.modes:
                     message = ':%s PRIVMSG %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
+                
                 for client in channel.clients:
                     if client != self and not 'D' in client.modes:
                         self.broadcast(client.nick, message)
@@ -675,13 +687,14 @@ class IRCClient(SocketServer.BaseRequestHandler):
         """
         Handle sending a notice to a user or channel.
         """
-#        The reason this doesn't call handle_privmsg specifying it's actually
-#        a NOTICE is because of the way the @scripts decorator locks default
-#        arguments in.
+        # The reason this doesn't call handle_privmsg specifying that it's a
+        # NOTICE is because of the way the @scripts decorator locks default
+        # arguments in.
         self.last_activity = str(time.time())[:10] 
-        if not ' ' in params: raise IRCError(ERR_NEEDMOREPARAMS, ':NOTICE Not enough parameters')
+        if not ' ' in params:
+            raise IRCError(ERR_NEEDMOREPARAMS, ':NOTICE Not enough parameters')
+        
         target, msg = params.split(' ', 1)
-
         message = ':%s NOTICE %s %s' % (self.client_ident(), target, msg)
         if target.startswith('#'):
             # Message to channel. Check if the channel exists.
@@ -690,13 +703,16 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 if not channel.name in self.channels:
                     # The user isn't in the channel.
                     raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
+                
                 if 'm' in channel.modes:
                     if self.nick not in channel.modes['v'] and self.nick not in channel.modes['h'] \
                     and self.nick not in channel.modes['o'] and self.nick not in channel.modes['a'] \
                     and self.nick not in channel.modes['q'] and not self.oper:
                         raise IRCError(ERR_VOICENEEDED, '%s :%s is +m.' % (channel.name, channel.name))
+                
                 if 'r' in channel.modes:
                     message = ':%s NOTICE %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
+                
                 for client in channel.clients:
                     if client != self and not 'D' in client.modes:
                         self.broadcast(client.nick, message)
@@ -705,8 +721,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
         else:
             # Message to user
             client = self.server.clients.get(target, None)
-            if client: self.broadcast(client.nick,message)
-            else: raise IRCError(ERR_NOSUCHNICK, '%s' % target)
+            if client:
+                self.broadcast(client.nick,message)
+            else:
+                raise IRCError(ERR_NOSUCHNICK, '%s' % target)
 
     @scripts
     def handle_nick(self, params):
@@ -748,6 +766,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if self.server.clients.get(nick, None) == self:
                 # Already registered to user
                 return
+            
             else:
                 # Nick is available. Change the nick.
                 message = ':%s NICK :%s' % (self.client_ident(), nick)
@@ -818,7 +837,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 except Exception, err:
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s while connecting.' % \
-                    (SRV_DOMAIN,self.client_ident(),err,script.file))
+                    (SRV_DOMAIN,self.client_ident(), err, script.file))
             return('')
 
     @scripts
@@ -931,25 +950,27 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         if 'cancel' in script.env:
                             if len(channel.clients) < 1:
                                 self.server.channels.pop(channel.name)
-                            if type(script['cancel']) == str: return(script['cancel'])
-                            else: return('')
+                            if isinstance(script['cancel'], (str, unicode)):
+                                return(script['cancel'])
+                            else:
+                                return('')
                     except Exception, err:
                         logging.error('%s in %s' % (err,script.file))
                         self.broadcast('umode:W',':%s ERROR %s found %s in %s while joining %s' % \
                         (SRV_DOMAIN,self.client_ident(),err,script.file,r_channel_name))
 
-            # Add ourself to the channel and the channel to users channel list
+            # Add ourself to the channel and the channel to users' channel list.
             channel.clients.add(self)
             self.channels[channel.name] = channel
 
-            # Send join message to everybody in the channel, including yourself
+            # Send join message to everybody in the channel, including yourself.
             response = ':%s JOIN :%s' % (self.client_ident(masking=True), r_channel_name)
             if ('I' in self.modes) or ('r' in channel.modes):
                 self.broadcast(self.nick,response)
             else:
                 self.broadcast(channel.name,response)
 
-            # Send the topic
+            # Send the topic.
             if channel.topic:
                 response = ':%s %s %s %s :%s' % \
                     (SRV_DOMAIN, RPL_TOPIC, self.nick, channel.name, channel.topic)
@@ -971,6 +992,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     else:
                         tmp = []
                         nicks = [client.nick for client in channel.clients]
+                        
                         # Find the highest channel op status of each user
                         # without removing any multiple statuses.
                         if 'g' not in channel.modes or self.oper:
@@ -1008,13 +1030,15 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     (self.server.servername, self.nick, channel.name, ' '.join(nicks)))
                 self.broadcast(self.nick, ':%s 366 %s %s :End of /NAMES list' % \
                     (self.server.servername, self.nick, channel.name))
-                del tmp, nicks, v,h,o,a,q
+                del tmp, nicks, v, h, o, a, q
 
     @scripts
     def handle_mode(self, params):
         """
         Handle the MODE command which sets and requests UMODEs and CMODEs
         """
+        # O' God this is a hairy method. It's willing to parse both +mode params
+        # and +mode:param,s for scripts and built-in modes.
         self.last_activity = str(time.time())[:10] 
 #       :nick!user@host MODE (#channel) +mode (args)
         if ' ' in params: # User is attempting to set a mode
@@ -1025,9 +1049,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if ' ' in mode: mode, argument = mode.split(' ',1)
             if target.startswith('#'):
                 channel = self.server.channels.get(target)
-                if not channel: raise IRCError(ERR_NOSUCHCHANNEL,target)
+                if not channel:
+                    raise IRCError(ERR_NOSUCHCHANNEL, target)
+                
                 # Retrieving bans and excepts
-                if mode in ['b','+b','e','+e'] and not argument:
+                if mode in ['b', '+b', 'e', '+e'] and not argument:
                     m = mode[-1] 
                     if m in channel.modes:
                         for item in channel.modes[m]:
@@ -1039,203 +1065,270 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             elif m == 'e': line = ":%s %s %s %s %s" % \
                                 (SRV_DOMAIN, RPL_EXCEPTLIST, self.nick, channel.name, item)
                             self.broadcast(self.nick,line)
+                    
                     if m == 'b': response = ":%s %s %s %s :End of Channel Ban List" % \
                         (SRV_DOMAIN, RPL_ENDOFBANLIST, self.nick, channel.name)
+                    
                     elif m == 'e': response = ":%s %s %s %s :End of Channel Exception List" % \
                         (SRV_DOMAIN, RPL_ENDOFEXCEPTLIST, self.nick, channel.name)
                     self.broadcast(self.nick,response)
+
                 elif self.nick in channel.modes['h'] or self.nick in channel.modes['o'] \
                 or self.nick in channel.modes['a'] or self.nick in channel.modes['q'] or self.oper:
                     if not argument:
                         args=[]
                         if ':' in mode: mode,args = mode.split(':',1)
-                        if args: args=args.split(',') # /mode +script value value
+                        if args:
+                            args = args.split(',')    # /mode +script value value
                         if mode.startswith('+'):      # is the same as /mode +script:value,value
                             mode = mode[1:]
                             if mode in self.server.scripts.cmodes and mode in channel.supported_modes:
-                                if mode.isupper() and not self.oper: return()
-                                if not mode in channel.modes: channel.modes[mode]=args
-                                elif type(channel.modes[mode]) == list and args: channel.modes[mode].extend(args)
+                                # Only IRCOPs can set uppercase modes.
+                                if mode.isupper() and not self.oper:
+                                    return()
+                                if not mode in channel.modes:
+                                    channel.modes[mode] = args
+                                
+                                elif type(channel.modes[mode]) == list and args:
+                                    channel.modes[mode].extend(args)
+                                
                                 script = self.server.scripts.cmodes[mode][0]
                                 # Send "set=True" into the scripts' namespace so it knows to adjust this channel.
                                 try:
-                                    script.execute({'client':self,'channel':channel,'mode':mode,'args':args,'set':True})
+                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
                                     if 'cancel' in script.env:
-                                        if type(script['cancel']) == str: return(script['cancel'])
-                                        else: return('')
+                                        if isinstance(script['cancel'], (str, unicode)):
+                                            return(script['cancel'])
+                                        else:
+                                            return('')
                                     self.broadcast(target,":%s MODE %s %s" % (self.client_ident(True), target, params.split()[1]))
-                                    return()
+                                    return
                                 except Exception, err:
                                     del channel.modes[mode]
                                     logging.error('%s in %s' % (err,script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                        (SRV_DOMAIN,self.client_ident(),err,script.file))
+                                        (SRV_DOMAIN,self.client_ident(), err, script.file))
                             else:
                                 for i in mode:
                                     if not i in channel.supported_modes:
                                         unknown_modes = unknown_modes + i
                                         continue
-                                    if i.isupper() and not self.oper: continue
+                                    
+                                    if i.isupper() and not self.oper:
+                                        continue
+                                    
                                     if i not in channel.modes:
                                         channel.modes[i]=args
                                         modeline=modeline+i
                             if modeline:
                                 message = ":%s MODE %s +%s" % (self.client_ident(True), target, modeline)
-                                self.broadcast(target,message)
+                                self.broadcast(target, message)
+                            
                             if unknown_modes:
                                 self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
                                     (SRV_DOMAIN, ERR_UNKNOWNMODE, self.nick, unknown_modes))
+                        
                         elif mode.startswith('-'):
                             mode = mode[1:]
                             removed_args=[]
+                            
                             if mode in self.server.scripts.cmodes and mode in channel.modes:
-                                if mode.isupper() and not self.oper: return()
-                                if type(channel.modes[mode]) == list and args:
+                                if mode.isupper() and not self.oper:
+                                    return
+                                
+                                if isinstance(channel.modes[mode], list) and args:
                                     for arg in args:
                                         if arg in channel.modes[mode]:
                                             channel.modes[mode].remove(arg)
                                             removed_args.append(arg)
+                                
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':self,'channel':channel,'mode':mode,'args':args,'set':False})
+                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
                                     if 'cancel' in script.env:
-                                        if type(script['cancel']) == str: return(script['cancel'])
-                                        else: return('')
+                                        if isinstance(script['cancel'], (str, unicode)):
+                                            return(script['cancel'])
+                                        else:
+                                            return('')
                                 except Exception, err:
-                                    logging.error('%s in %s' % (err,script.file))
+                                    logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                         (SRV_DOMAIN,self.client_ident(),err,script.file))
+                                
                                 if mode in channel.modes:
                                     # Using "/mode -script:" clears all values.
-                                    if type(args) == str: del channel.modes[mode]
+                                    if isinstance(args, (str, unicode)):
+                                        del channel.modes[mode]
+                                    
                                     # Here we try to unset the mode if sending "set=False" into the
                                     # script hasn't caused it to extricate its effects from the channel.
-                                    elif type(channel.modes[mode]) == int: del channel.modes[mode]
+                                    elif isinstance(channel.modes[mode], (int, float)):
+                                        del channel.modes[mode]
+                                    
                                     else:
                                         try:
-                                            if len(channel.modes[mode]) == 0: del channel.modes[mode]
-                                        except: pass # TODO: Craft a scenario where this pass is met, and return output to users about it.
-                                if removed_args: modeline = '%s:%s' % (mode,','.join(removed_args))
-                                else: modeline=mode
+                                            if len(channel.modes[mode]) == 0:
+                                                del channel.modes[mode]
+                                        # TODO: Craft a scenario where this pass is met, and return output to users about it.
+                                        except:
+                                            pass
+                                if removed_args:
+                                    modeline = '%s:%s' % (mode, ','.join(removed_args))
+                                else:
+                                    modeline = mode
                             else:
                                 for i in mode:
                                     if i in channel.modes:
-                                        if i.isupper() and not self.oper: continue
-                                        if i in ['v','h','o','a','q','e','b']: continue
-                                        if i == 'i' or (type(channel.modes[i]) == int) or (len(channel.modes[i]) == 0): del channel.modes[i]
-                                        modeline=modeline+i
+                                        if i.isupper() and not self.oper:
+                                            continue
+                                        
+                                        if i in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
+                                            continue
+                                        
+                                        if i == 'i' or (type(channel.modes[i]) == int) or (len(channel.modes[i]) == 0):
+                                            del channel.modes[i]
+                                        modeline = modeline + i
                             if mode in channel.modes:
-                                if type(channel.modes[mode]) == list:
-                                    self.msg('%s +%s contains \x02%s\x0F.' % (channel.name,mode,'\x0F, \x02'.join(channel.modes[mode])))
+                                if isinstance(channel.modes[mode], list):
+                                    self.msg('%s +%s contains \x02%s\x0F.' % \
+                                            (channel.name, mode, '\x0F, \x02'.join(channel.modes[mode])))
                                 self.msg('Use \x02\x1F/MODE %s -%s:\x0F to clear.' % (channel.name,mode))
+                            
                             elif modeline:
                                 message = ":%s MODE %s -%s" % (self.client_ident(True), target, modeline)
-                                self.broadcast(target,message)
+                                self.broadcast(target, message)
 
                     else: # A mode with arguments. Chan ops, bans, excepts..
                         args=argument.split(' ')
                         if mode.startswith('+'):
                             mode = mode[1:]
                             if mode in self.server.scripts.cmodes and mode in channel.supported_modes:
-                                if mode.isupper() and not self.oper: return()
-                                if not mode in channel.modes: channel.modes[mode]=args
-                                elif type(channel.modes[mode]) == list and args: channel.modes[mode].extend(args)
+                                if mode.isupper() and not self.oper:
+                                    return
+                                if not mode in channel.modes:
+                                    channel.modes[mode] = args
+                                elif isinstance(channel.modes[mode], list) and args:
+                                    channel.modes[mode].extend(args)
+                                
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':self,'channel':channel,'mode':mode,'args':args,'set':True})
+                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
                                     if 'cancel' in script.env:
-                                        if type(script['cancel']) == str: return(script['cancel'])
-                                        else: return('')
-                                    modeline=mode
+                                        if isinstance(script['cancel'], (str, unicode)):
+                                            return(script['cancel'])
+                                        else:
+                                            return
+                                    modeline = mode
                                 except Exception, err:
                                     del channel.modes[mode]
-                                    logging.error('%s in %s' % (err,script.file))
+                                    logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (SRV_DOMAIN,self.client_ident(),err,script.file))
+                                    (SRV_DOMAIN,self.client_ident(), err, script.file))
                             else:
                                 for i in mode:
                                     if not i in channel.supported_modes:
                                         unknown_modes += i
                                         continue
+                                    
                                     for n in args:
                                         if (i == 'v' or i == 'h' or i == 'o' or i == 'a' or i == 'q') and (i in channel.supported_modes):
                                             if not i in channel.modes: channel.modes[i]=[]
                                             if not self.oper:
                                                 if (i == 'a' or i == 'q') and (not self.nick in channel.modes['q']):
                                                     raise IRCError(ERR_CHANOWNPRIVNEEDED, "%s You're not a channel owner." % channel.name)
+                                                
                                                 if (i == 'o') and (not self.nick in channel.modes['o'] and not self.nick in channel.modes['a'] \
                                                 and not self.nick in channel.modes['q']):
                                                     raise IRCError(ERR_NOTFORHALFOPS, "Halfops cannot set mode %s" % i)
+                                            
                                             if n not in channel.modes[i]:
                                                 channel.modes[i].append(n)
-                                                modeline+=i
+                                                modeline += i
                                                 args.remove(n)
+                                        
                                         elif (i == 'b' or i == 'e') and i in channel.supported_modes:
                                             n = re_to_irc(n,False)
                                             if not i in channel.modes: channel.modes[i]=[]
                                             channel.modes[i].append('%s %s %s' % (n, self.nick, str(time.time())[:10]))
                                             modeline+=i
+                            
                             if modeline:
                                 message = ":%s MODE %s +%s %s" % (self.client_ident(True), target, modeline, argument)
                                 self.broadcast(target,message)
+                            
                             if unknown_modes: self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
                                 (SRV_DOMAIN, ERR_UNKNOWNMODE, self.nick, unknown_modes))
-                        elif mode.startswith('-'):
-                            mode = mode[1:]
-                            removed_args=[]
+                        
+                            elif mode.startswith('-'):
+                                mode = mode[1:]
+                                removed_args=[]
+                            
                             if mode in self.server.scripts.cmodes and mode in channel.modes:
-                                if mode.isupper() and not self.oper: return()
-                                if type(channel.modes[mode]) == list and args:
+                                if mode.isupper() and not self.oper:
+                                    return
+
+                                if isinstance(channel.modes[mode], list) and args:
                                     for arg in args:
                                         if arg in channel.modes[mode]:
                                             channel.modes[mode].remove(arg)
                                             removed_args.append(arg)
+                                
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':self,'channel':channel,'mode':mode,'args':args,'set':False})
+                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
                                     if 'cancel' in script.env:
-                                        if type(script['cancel']) == str: return(script['cancel'])
-                                        else: return('')
+                                        if isinstance(script['cancel'], (str, unicode)):
+                                            return(script['cancel'])
+                                        else:
+                                            return('')
                                 except Exception, err:
-                                    logging.error('%s in %s' % (err,script.file))
+                                    logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (SRV_DOMAIN,self.client_ident(),err,script.file))
+                                    (SRV_DOMAIN,self.client_ident(), err, script.file))
                                 if mode in channel.modes:
-                                    if type(channel.modes[mode]) == int: del channel.modes[mode]
+                                    if isinstance(channel.modes[mode], (int, float)):
+                                        del channel.modes[mode]
                                     else:
                                         try:
-                                            if len(channel.modes[mode]) == 0: del channel.modes[mode]
-                                        except: pass
-                                modeline=mode
+                                            if len(channel.modes[mode]) == 0:
+                                                del channel.modes[mode]
+                                        except:
+                                            pass
+                                modeline = mode
                             else:
                                 for i in mode:
                                     for n in args:
                                         if i not in channel.modes:
                                             unknown_modes += n
                                             continue
+                                        
                                         if (i == 'v' or i == 'h' or i == 'o' or i == 'a' or i == 'q') and (i in channel.modes):
                                             if not self.oper:
                                                 if (i == 'a' or i == 'q') and (not self.nick in channel.modes['q']):
                                                     raise IRCError(ERR_CHANOWNPRIVNEEDED, "%s You're not a channel owner." % channel.name)
+                                                
                                                 if (i == 'o') and (not self.nick in channel.modes['o'] and not self.nick in channel.modes['a'] \
                                                 and not self.nick in channel.modes['q']):
                                                     raise IRCError(ERR_NOTFORHALFOPS, "Halfops cannot unset mode %s" % i)
+                                            
                                             if n in channel.modes[i]:
                                                 channel.modes[i].remove(n)
-                                                modeline+=i
+                                                modeline += i
                                                 args.remove(n)
+                                        
                                         elif (i == 'b' or i == 'e') and i in channel.modes:                  
-                                            n = re_to_irc(n,False)
+                                            n = re_to_irc(n, False)
                                             for entry in channel.modes[i]:
                                                 if entry.split()[0] == n:
                                                     channel.modes[i].remove(entry)
                                                     modeline+=i
+                                        
                                         elif i == 'i':
                                             del channel.modes[i]
                                             modeline += i
                             if modeline:
                                 message = ":%s MODE %s -%s %s" % (self.client_ident(True), target, modeline, argument)
-                                self.broadcast(target,message)                
+                                self.broadcast(target, message)                
                 else:
                     raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s You are not a channel operator.' % channel.name)
 
@@ -1243,27 +1336,34 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 if (self.nick == target) or self.oper:
                     user = self.server.clients.get(target)
                     if not user: raise IRCError(ERR_NOSUCHNICK, target)
-                    modeline=''
+                    modeline = ''
                     if mode.startswith('+'):
                         for i in mode[1:]:
                             if i in self.supported_modes and i not in self.modes:
-                                if i.isupper() and not self.oper: continue
+                                if i.isupper() and not self.oper:
+                                    continue
                                 user.modes[i]=1
-                                modeline=modeline+i
+                                modeline = modeline + i
+                        
                         if len(modeline) > 0:
                             response = ':%s MODE %s +%s' % (self.client_ident(True), user.nick, modeline)
                             self.broadcast(self.nick,response)
-                            if user.nick != self.nick: self.broadcast(user.nick,response)
+                            if user.nick != self.nick:
+                                self.broadcast(user.nick, response)
+                    
                     elif mode.startswith('-'):
                         for i in mode[1:]:
                             if i in user.modes:
-                                if i.isupper() and not self.oper: continue
+                                if i.isupper() and not self.oper:
+                                    continue
                                 del user.modes[i]
-                                modeline=modeline+i
+                                modeline = modeline + i
+                        
                         if len(modeline) > 0:
                             response = ':%s MODE %s -%s' % (self.client_ident(True), user.nick, modeline)
                             self.broadcast(self.nick,response)
-                            if user.nick != self.nick: self.broadcast(user.nick,response)
+                            if user.nick != self.nick:
+                                self.broadcast(user.nick, response)
 
         else: # User is requesting a list of modes
             if params.startswith('#'):
@@ -1271,47 +1371,56 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 scripts=[] 
                 channel = self.server.channels.get(params)
                 if not channel:
-                    raise IRCError(ERR_NOSUCHCHANNEL, '%s :%s' % (params,params))
+                    raise IRCError(ERR_NOSUCHCHANNEL, '%s :%s' % (params, params))
+                
                 if not self.oper and self not in channel.clients:
-                    raise IRCError(ERR_NOTONCHANNEL,'%s :%s You are not in that channel.' % (channel.name,channel.name))
+                    raise IRCError(ERR_NOTONCHANNEL,'%s :%s You are not in that channel.' % (channel.name, channel.name))
+                
                 for mode in channel.modes:
-                    if mode in ['v','h','o','a','q','e','b']: continue
+                    if mode in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
+                        continue
                     if mode in self.server.scripts.cmodes:
-                        ns = {'client':self,'channel':channel,'mode':mode,'display':True}
+                        ns = {'client': self, 'channel': channel, 'mode': mode, 'display': True}
                         script = self.server.scripts.cmodes[mode][0]
                         try:
                             # Using "item" to avoid race conditions.
                             item = script.execute(ns)
-                            if 'output' in item: scripts.append('%s %s' % (mode,item['output']))
-                            else: scripts.append(mode)
+                            if 'output' in item: scripts.append('%s %s' % (mode, item['output']))
+                            else:
+                                scripts.append(mode)
                         except Exception, err:
-                            logging.error('%s in %s' % (err,script.file))
+                            logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (SRV_DOMAIN,self.client_ident(),err,script.file))
-                    if len(mode) == 1: modes=modes+mode
+                                (SRV_DOMAIN, self.client_ident(), err, script.file))
+                    if len(mode) == 1:
+                        modes = modes + mode
                 self.broadcast(self.nick,':%s 324 %s %s +%s' % (self.server.servername, self.nick, params, modes))
-                for item in scripts: self.broadcast(self.nick,':%s 324 %s %s +%s' % \
-                    (SRV_DOMAIN, self.nick, params, item))
+                for item in scripts:
+                    self.broadcast(self.nick,':%s 324 %s %s +%s' % (SRV_DOMAIN, self.nick, params, item))
             elif self.oper or params == self.nick:
-                modes='+'
-                scripts=[]
+                modes = '+'
+                scripts = []
                 user = self.server.clients.get(params)
                 if not user:
                     raise IRCError(ERR_NOSUCHNICK, params)
+                
                 for mode in user.modes:
                     if mode in self.server.scripts.umodes:
-                        ns = {'client':self,'mode':mode,'display':True}
+                        ns = {'client': self, 'mode': mode, 'display': True}
                         script = self.server.scripts.umodes[mode][0]
                         try:
                             item = script.execute(ns)
-                            if 'output' in item: scripts.apppend('%s %s' % (mode,item['output']))
-                            else: scripts.append(mode)
+                            if 'output' in item:
+                                scripts.apppend('%s %s' % (mode, item['output']))
+                            else:
+                                scripts.append(mode)
                             scripts.append(item)
                         except Exception, err:
-                            logging.error('%s in %s' % (err,script.file))
+                            logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (SRV_DOMAIN,self.client_ident(),err,script.file))
-                    if len(mode) == 1: modes=modes+mode
+                                (SRV_DOMAIN,self.client_ident(), err, script.file))
+                    if len(mode) == 1:
+                        modes = modes + mode
                 self.broadcast(self.nick,':%s %s %s :%s' % (SRV_DOMAIN, RPL_UMODEIS, params, modes))
                 for item in scripts: self.broadcast(self.nick,':%s %s %s %s +%s' % \
                     (SRV_DOMAIN, RPL_UMODEIS, params, item))
@@ -1331,20 +1440,20 @@ class IRCClient(SocketServer.BaseRequestHandler):
 
                 response = ':%s %s %s %s %s' % \
                     (SRV_DOMAIN, RPL_INVITING, self.nick, target, channel.name)
-                self.broadcast(self.nick,response)
+                self.broadcast(self.nick, response)
 
                 # Tell the channel
                 response = ':%s NOTICE @%s :%s invited %s into the channel.' % \
                     (SRV_DOMAIN, channel.name, self.nick, target)
-                self.broadcast(channel.name,response)
+                self.broadcast(channel.name, response)
 
                 # Tell the invitee
                 response = ':%s INVITE %s :%s' % \
                     (self.client_ident(True), target, channel.name)
-                self.broadcast(target,response)
+                self.broadcast(target, response)
             else:
                 raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s :%s You are not a channel operator.' % \
-                    (channel.name,channel.name))
+                    (channel.name, channel.name))
 
     @scripts
     def handle_knock(self, params):
@@ -1354,10 +1463,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if 'i' in channel.modes and not channel.name in self.channels:
                 response = ':%s NOTICE @%s :%s knocked on %s.' % \
                     (SRV_DOMAIN, channel.name, self.nick, channel.name)
-                self.broadcast(channel.name,response)
+                self.broadcast(channel.name, response)
                 response = ':%s NOTICE %s : Knocked on %s' % \
                     (SRV_DOMAIN, self.nick, channel.name)
-                self.broadcast(self.nick,response)
+                self.broadcast(self.nick, response)
 
     @scripts
     def handle_whois(self, params):
@@ -1379,50 +1488,51 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.broadcast(self.nick,response)
 
             # Channels the user is in. Modify to show op status.
-            channels=[]
+            channels = []
             for channel in user.channels.values():
-                if 'p' not in channel.modes: channels.append(channel.name)
+                if 'p' not in channel.modes:
+                    channels.append(channel.name)
             if channels:
                 response = ':%s %s %s %s :%s' % \
                     (SRV_DOMAIN, RPL_WHOISCHANNELS, self.nick, user.nick, ' '.join(channels))
-                self.broadcast(self.nick,response)
+                self.broadcast(self.nick, response)
 
             # Oper info
             if user.oper and 'H' not in user.modes:
                 if 'A' in user.modes:
                     response = ':%s %s %s %s :%s is a server admin.' % \
                         (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick, user.nick)
-                    self.broadcast(self.nick,response)
+                    self.broadcast(self.nick, response)
                 if 'O' in user.modes:
                     response = ':%s %s %s %s :%s is a server operator.' % \
                         (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick, user.nick)
-                    self.broadcast(self.nick,response)
+                    self.broadcast(self.nick, response)
 
             if self.oper or self.nick == user.nick:
                 if user.rhost:
                     response = ':%s %s %s %s %s %s' % \
                         (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick, user.rhost, user.host[0])
-                    self.broadcast(self.nick,response)
+                    self.broadcast(self.nick, response)
                 else:
                     response = ':%s %s %s %s %s' % \
                         (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick, user.host[0])
-                    self.broadcast(self.nick,response)
+                    self.broadcast(self.nick, response)
 
             # Server info line
             response = ':%s %s %s %s %s :%s' % \
                 (SRV_DOMAIN, RPL_WHOISSERVER, self.nick, user.nick, SRV_DOMAIN, SRV_DESCRIPTION)
-            self.broadcast(self.nick,response)
+            self.broadcast(self.nick, response)
 
             if 'Z' in user.modes:
                 response = ':%s %s %s %s :is using a secure connnection' % \
                     (SRV_DOMAIN, RPL_WHOISSECURE, self.nick, user.nick)
-                self.broadcast(self.nick,response)
+                self.broadcast(self.nick, response)
 
             # Idle and connection time.
             idle_time = int(str(time.time())[:10]) - int(user.last_activity)
             response = ':%s %s %s %s %i %s :seconds idle, signon time' % \
                 (SRV_DOMAIN, RPL_WHOISIDLE, self.nick, user.nick, idle_time, user.connected_at)
-            self.broadcast(self.nick,response)
+            self.broadcast(self.nick, response)
 
             # That about wraps 'er up.
             response = ':%s %s %s %s :End of /WHOIS list.' % (SRV_DOMAIN, RPL_ENDOFWHOIS, self.nick, user.nick)
@@ -1449,6 +1559,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         self.broadcast(self.nick, ":%s %s %s %s %s %s %s %s H :n/a %s" % \
                         (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name, client.user, host, SRV_DOMAIN, client.nick, client.realname))
                 self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, channel.name))            
+        
         elif self.oper and params == '*':
             for client in self.server.clients.values():
                 host = client.client_ident(True)
@@ -1460,6 +1571,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     self.broadcast(self.nick, ":%s %s %s %s %s %s %s H :n/a %s" % \
                     (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host, SRV_DOMAIN, client.nick, client.realname))
             self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
+        
         else:
             client = self.server.clients.get(params)
             if not client: raise IRCError(ERR_NOSUCHNICK, params)
@@ -1486,24 +1598,30 @@ class IRCClient(SocketServer.BaseRequestHandler):
         else:
             channel_name = params
             topic = None
+        
         channel = self.server.channels.get(channel_name)
         if not channel:
             raise IRCError(ERR_NOSUCHCHANNEL, 'PRIVMSG :%s' % (channel_name))
+        
         if not channel.name in self.channels:
             # The user isn't in the channel.
             raise IRCError(ERR_CANNOTSENDTOCHAN, '%s :Cannot send to channel' % (channel.name))
+        
         if topic:
             if self.nick in channel.modes['h'] or self.nick in channel.modes['o'] \
             or self.nick in channel.modes['a'] or self.nick in channel.modes['q'] or self.oper:
-                if topic == channel.topic: return()
+                if topic == channel.topic:
+                    return
                 channel.topic = topic
                 channel.topic_by = self.nick
                 channel.topic_time = str(time.time())[:10]
                 message = ':%s TOPIC %s :%s' % (self.client_ident(), channel_name, channel.topic)
                 self.broadcast(channel.name,message)
+            
             else:
                 raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s :%s You are not a channel operator.' % \
                     (channel.name,channel.name))
+        
         else:
             self.broadcast(self.nick, ':%s %s %s %s :%s' % \
                 (SRV_DOMAIN, RPL_TOPIC, self.nick, channel.name, channel.topic))
@@ -1545,9 +1663,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Implement the kick command
         """
         self.last_activity = str(time.time())[:10] 
-        message=None
-        channel, target= params.split(' ',1)
-        if ':' in target: target, message = target.split(' :',1)
+        message = None
+        channel, target = params.split(' ',1)
+        if ':' in target:
+            target, message = target.split(' :',1)
 
         channel = self.server.channels.get(channel)
         if not channel:
@@ -1579,7 +1698,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
         else: response = ':%s KICK %s %s :%s' % (self.client_ident(True), channel.name, target.nick, self.nick)
 
         for op_list in channel.ops:
-            if target.nick in op_list: op_list.remove(target.nick)
+            if target.nick in op_list:
+                op_list.remove(target.nick)
+        
         self.broadcast(channel.name, response)
         target.channels.pop(channel.name)
         channel.clients.remove(target)
@@ -1595,9 +1716,10 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if ('s' not in channel.modes) or ('S' in self.modes):
                 tmp_modes = []
                 for mode in channel.modes:
-                    if mode not in ['v','h','o','a','q','e','b']: tmp_modes.append(mode)
+                    if mode not in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
+                        tmp_modes.append(mode)
                 self.broadcast(self.nick, ':%s %s %s %s %i :[+%s] %s' % \
-                (SRV_DOMAIN,RPL_LIST,self.nick,channel.name,len(channel.clients),''.join(tmp_modes),channel.topic))
+                (SRV_DOMAIN,RPL_LIST, self.nick, channel.name, len(channel.clients), ''.join(tmp_modes), channel.topic))
         return(':%s %s %s :End of /LIST' % (SRV_DOMAIN, RPL_LISTEND, self.nick))
 
     @scripts
@@ -1612,15 +1734,18 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 modeline = ''
                 opername, password = params.split(' ', 1)
                 password = hashlib.sha512(password).hexdigest()
+                
                 if password == OPER_PASSWORD and opername == OPER_USERNAME:
                     oper = self.server.opers.setdefault(self.nick, IRCOperator(self))
                     self.modes['A'] = 1
                     modeline = modeline + 'A'
+                
                 else:
                     oper = self.server.opers.get(opername)
                     if (not oper) or (not oper.passwd) or (oper.passwd != password):
-                        return (':%s NOTICE %s :No O:Lines for your host.' %
-                                (SRV_DOMAIN, self.nick))
+                        return ':%s NOTICE %s :No O:Lines for your host.' % \
+                                (SRV_DOMAIN, self.nick)
+                
                 self.vhost = oper.vhost
                 self.oper = oper
                 self.broadcast('umode:W', ':%s NOTICE _ :%s is now an IRC operator.' % \
@@ -1652,21 +1777,23 @@ class IRCClient(SocketServer.BaseRequestHandler):
             target = self.server.clients.get(target)
             if target:
                 target.vhost = vhost
-                return(':%s NOTICE %s :Changed the vhost for %s to %s.' % (SRV_DOMAIN,self.nick,target.nick,target.vhost))
+                return(':%s NOTICE %s :Changed the vhost for %s to %s.' % \
+                    (SRV_DOMAIN, self.nick, target.nick, target.vhost))
             else:
-                return(':%s NOTICE %s :Invalid nick: %s.' % (SRV_DOMAIN,self.nick,target))
+                return(':%s NOTICE %s :Invalid nick: %s.' % (SRV_DOMAIN, self.nick, target))
         else:
-            return(':%s NOTICE %s :You must be identified as an operator to use CHGHOST.' % (SRV_DOMAIN,self.nick))
+            return(':%s NOTICE %s :You must be identified as an operator to use CHGHOST.' % \
+                (SRV_DOMAIN, self.nick))
 
     @scripts
     def handle_kill(self,params):
-        nick, reason = params.split(' ',1)
+        nick, reason = params.split(' ', 1)
         reason = reason.lstrip(':')
         if self.oper:
             client = self.server.clients.get(nick)
             if client:
                 if 'A' in client.modes:
-                    return(':%s ERROR %s is an IRC Administrator.' %(SRV_DOMAIN,client.nick))
+                    return(':%s ERROR %s is an IRC Administrator.' %(SRV_DOMAIN, client.nick))
                 else:
                     client.finish(':%s QUIT :Killed by %s: %s' % (client.client_ident(True), self.nick, reason))
 
@@ -1688,6 +1815,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             response = ": Available OperServ commands are %s." % \
                 ', '.join([c[7:] for c in dir(self.oper) if c.startswith("handle_")])
             self.broadcast(self.nick, response)
+        
         elif not ' ' in params:
             docs = self.handle_helpop.__doc__.split('\n')
             doc = ''
@@ -1703,6 +1831,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if self.oper:
                 message = ': Use "/helpop ocommand commandname" for documentation on a given operserv command.'
                 self.broadcast(self.nick, message)
+        
         else:
             (section, topic) = params.split(' ', 1)
             if section == "umode":
@@ -1711,6 +1840,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                     self.broadcast(self.nick, message)
                     message = ": %s" % self.supported_modes[topic]
                     self.broadcast(self.nick, message)
+            
             elif section == "command":   
                 if hasattr(self, "handle_" + topic):   
                     message = ": %s help on command %s" % (SRV_DOMAIN,
@@ -1731,6 +1861,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 else:
                     message = ": Unknown command %s" % topic.upper()
                     self.broadcast(self.nick, message)
+            
             elif section == "ocommand":
                 if self.oper:
                     if hasattr(self.oper, "handle_" + topic):
@@ -1787,7 +1918,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 table = tabulate(fmt, ul='-')(data)
                 for line in table.split('\n'): self.msg(line)
                 del data, fmt, table, t, tmp
-                return()
+                return
 
             cmd = params.split()[0]
             if cmd.lower() == 'add':
@@ -1810,7 +1941,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % \
                     (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
 
-    def client_ident(self,masking=None):
+    def client_ident(self, masking=None):
         """
         Return the client identifier as included in many command replies.
         """
@@ -1823,16 +1954,21 @@ class IRCClient(SocketServer.BaseRequestHandler):
             return('%s!%s@%s' % (self.nick, self.user, self.host[0]))
 
     @scripts
-    def finish(self,response=None):
+    def finish(self, response=None):
         """
         The client conection is finished. Do some cleanup to ensure that the
         client doesn't linger around in any channel or the client list, in case
         the client didn't properly close the connection with PART and QUIT.
         """
-        if not self.nick: return()
+        if not self.nick:
+            return
+        
         if not response:
             response = ':%s QUIT :Connection reset by peer' % (self.client_ident(True))
-        if not self.nick in self.server.clients: return()
+        
+        if not self.nick in self.server.clients:
+            return
+
 #        self.request.send(response)
         peers = []
         for channel in self.channels.values():
@@ -1849,14 +1985,23 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.server.channels.pop(channel.name)
             else:
                 for p in channel.clients: peers.append(p)
+        
         peers = set(peers)
-        for peer in peers: self.broadcast(peer.nick,response)
-        try: self.server.clients.pop(self.nick)
-        except KeyError: return()
-        self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % (SRV_DOMAIN, self.client_ident()))
+        for peer in peers:
+            self.broadcast(peer.nick, response)
+        
+        try:
+            self.server.clients.pop(self.nick)
+        except KeyError:
+            return
+        
+        self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % \
+            (SRV_DOMAIN, self.client_ident()))
         logging.info('Client disconnected: %s' % (self.client_ident()))
+        
         if len(self.server.clients) == 0:
             logging.info('There goes the last client.')
+        
         self.request.close()
 
     def __repr__(self):
@@ -2021,7 +2166,7 @@ class Script(object):
 
         def __getitem__(self, key):
                 if key in self.env.keys():
-                        return(self.env[key])
+                        return self.env[key]
                 else:
                         raise(KeyError(key))
 
@@ -2032,9 +2177,9 @@ class Script(object):
             except Exception, err:
                 logging.error('%s in %s' % (err,self.file))
                 client.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                    (SRV_DOMAIN,client.client_ident(),err,self.file))
+                    (SRV_DOMAIN,client.client_ident(), err, self.file))
                 client.broadcast(client.nick, ':%s NOTICE %s :%s is temporarily out of order.' % \
-                    (SRV_DOMAIN,client.nick,command.upper()))
+                    (SRV_DOMAIN, client.nick, command.upper()))
 
 class Scripts(object):
     def __init__(self):
@@ -2044,8 +2189,8 @@ class Scripts(object):
         self.cmodes   = {}
         self.umodes   = {}
         self.threads  = []
-        self.i        = {'commands':self.commands,
-        'cmodes':self.cmodes,'umodes':self.umodes}
+        self.i        = {'commands': self.commands,
+        'cmodes': self.cmodes, 'umodes': self.umodes}
 
     def load(self, script, client=None):
         """
@@ -2053,24 +2198,30 @@ class Scripts(object):
         Determines if it's already loaded,
         Places into the correct dictionary.
         """
-        try: (provides,s) = self.init(script,client,True)
-        except: return
-        err=None
+        try:
+            provides, s = self.init(script, client, True)
+        except:
+            return
+        
+        err = None
         for item in provides:
             description = 'No description.'
-            d=item.split(':')
-            if len(d)>2: description=d[2]
+            d = item.split(':')
+            if len(d) > 2:
+                description=d[2]
             if d[0] == 'command':
                 for i in d[1].split(','):
                     if i in self.commands.keys():
                         err = "%s appears to already be loaded." % i
                     else:self.commands[i] = [s,description]
                     if client: client.broadcast(client.nick, ':%s NOTICE %s :Loaded %s %s (%s)' % \
-                        (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded %s %s (%s)' % (d[0],i, description))
+                        (SRV_DOMAIN, client.nick, d[0], i, description))
+                    logging.info('Loaded %s %s (%s)' % (d[0], i, description))
+            
             elif d[0] == 'cmode':
                 for i in d[1].split(','):
-                    if i in self.cmodes: err = "%s appears to already be loaded." % i
+                    if i in self.cmodes:
+                        err = "%s appears to already be loaded." % i
                     else:
                         self.cmodes[i] = [s, description]
                         if self.server:
@@ -2078,10 +2229,12 @@ class Scripts(object):
                                 channel.supported_modes[i] = description
                     if client: client.broadcast(client.nick, ':%s NOTICE %s :Loaded %s %s (%s)' % \
                         (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded %s %s (%s)' % (d[0],i, description))
+                    logging.info('Loaded %s %s (%s)' % (d[0], i, description))
+            
             elif d[0] == 'umode':
                 for i in d[1].split(','):
-                    if i in self.umodes: err = "%s appears to already be loaded." % i
+                    if i in self.umodes:
+                        err = "%s appears to already be loaded." % i
                     else:
                         self.umodes[i] = [s, description]
                         if self.server:
@@ -2096,20 +2249,25 @@ class Scripts(object):
                 logging.error(err)
 
     def unload(self, script, client=None, force=False):
-        try: provides = self.init(script,client,loading=False)
-        except: return
-        err=''
-        if not provides: return
+        try:
+            provides = self.init(script, client, loading=False)
+        except:
+            return
+        err = ''
+        if not provides:
+            return
         for item in provides:
             description = 'No description.'
-            d=item.split(':')
-            if len(d)>2: description=d[2]
+            d = item.split(':')
+            if len(d) > 2:
+                description = d[2]
             if d[0] == 'command':
                 for i in d[1].split(','):
                     if i in self.commands:
                         del self.commands[i]
-                        err = "Unloaded %s %s (%s)" % (d[0],i,description)
-                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
+                        err = "Unloaded %s %s (%s)" % (d[0], i, description)
+                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
+                            (SRV_DOMAIN, client.nick, err))
                         logging.info(err)
             elif d[0] == 'cmode':
                 for i in d[1].split(','):
@@ -2120,11 +2278,13 @@ class Scripts(object):
                                     del channel.supported_modes[i]
                                 if i in channel.modes:
                                     # ns={'set':False}
-                                    if client: client.broadcast(channel.name,':%s MODE %s -%s' % (SRV_DOMAIN, channel.name, i))
+                                    if client: client.broadcast(channel.name,':%s MODE %s -%s' % \
+                                        (SRV_DOMAIN, channel.name, i))
                                     del channel.modes[script]
                         del self.cmodes[i]
-                        err = "Unloaded %s %s (%s)" % (d[0],i,description)
-                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
+                        err = "Unloaded %s %s (%s)" % (d[0], i, description)
+                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
+                            (SRV_DOMAIN, client.nick, err))
                         logging.info(err)
             elif d[0] == 'umode':
                 for i in d[1].split(','):
@@ -2134,36 +2294,47 @@ class Scripts(object):
                                 if i in user.supported_modes:
                                     del user.supported_modes[i]
                                 if i in user.modes:
-                                    if client: client.broadcast(client.nick,':%s MODE %s -%s' % (SRV_DOMAIN, user.nick, i))
+                                    if client: client.broadcast(client.nick,':%s MODE %s -%s' % \
+                                        (SRV_DOMAIN, user.nick, i))
                                     del user.modes[i]
                     del self.umodes[i]
                     err = "Unloaded %s %s (%s)" % (d[0],i,description)
-                    if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
+                    if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
+                        (SRV_DOMAIN, client.nick, err))
                     logging.info(err)
             else:
                 err = "%s doesn't provide anything I can recognize." % (self.dir+script)
-                if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
+                if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
+                    (SRV_DOMAIN, client.nick, err))
                 logging.error(err)
 
     def init(self, script, client=None, return_script=False, loading=True):
-        if self.dir: script=Script(self.dir+script)
-        else: raise Exception('self.dir undefined.')
-        try: script.execute({'init':loading, 'client':client, 'server':self.server})
+        if self.dir:
+            script = Script(self.dir+script)
+        else:
+            raise Exception('self.dir undefined.')
+        try:
+            script.execute({'init': loading, 'client': client, 'server': self.server})
         except Exception, err:
-            if not client: logging.error('%s in %s' % (err,script.file))
-            else: client.broadcast(client.nick, ':%s NOTICE %s :%s in %s' % (SRV_DOMAIN, client.nick, err, script.file))
-            return()
+            if not client:
+                logging.error('%s in %s' % (err, script.file))
+            else:
+                client.broadcast(client.nick, ':%s NOTICE %s :%s in %s' % \
+                    (SRV_DOMAIN, client.nick, err, script.file))
+            return
         provides = []
         if 'provides' in script.env.keys():
-            if type(script['provides']) == str: provides.append(script['provides'])
-            elif type(script['provides']) == list: provides = script['provides']
+            if isinstance(script['provides'], (str, unicode)):
+                provides.append(script['provides'])
+            elif isinstance(script['provides'], list):
+                provides = script['provides']
             else:
                 if client: client.broadcast(client.nick, ":%s NOTICE %s :Incorrect type %s used to contain 'provides' in %s" % \
-                (SRV_DOMAIN, client.nick, type(script['provides']), script.file))
+                    (SRV_DOMAIN, client.nick, type(script['provides']), script.file))
                 else: logging.error("Incorrect type %s used to contain 'provides' in %s" % (type(s['provides']), script.file))
-                return()
+                return
             if return_script:
-                return (provides,script)
+                return (provides, script)
             return provides
 
 def sha1sum(data): return(hashlib.sha1(data).hexdigest())
@@ -2204,12 +2375,12 @@ def format(data):
 
 def tconv(seconds):
     minutes, seconds = divmod(seconds, 60)
-    hours, minutes   = divmod(minutes, 60)
-    days, hours      = divmod(hours, 24)
-    weeks, days      = divmod(days, 7)
-    months, weeks    = divmod(weeks, 4)
-    years, months    = divmod(months, 12)
-    s=""
+    hours,   minutes = divmod(minutes, 60)
+    days,    hours   = divmod(hours,   24)
+    weeks,   days    = divmod(days,     7)
+    months,  weeks   = divmod(weeks,    4)
+    years,   months  = divmod(months,  12)
+    s = ""
     if years:
         if years == 1: s+= "%i year, " % (years)
         else: s+= "%i years, " % (years)
@@ -2232,7 +2403,8 @@ def tconv(seconds):
         else:
             if minutes == 1: s+= "%i minute" % (minutes)
             else: s+= "%i minutes" % (minutes)
-    if s =='': s='a few seconds'
+    if s == '':
+        s = 'a few seconds'
     return s
 
 # Fork a child and end the parent (detach from parent)
