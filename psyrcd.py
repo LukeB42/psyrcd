@@ -1967,6 +1967,19 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 self.server.lines['K'][host] = [self.client_ident(True), t, reason]
                 self.broadcast('umode:W', ':%s NOTICE * :%s added a K:Line for %s "%s"' % \
                     (SRV_DOMAIN, self.client_ident(True), re_to_irc(host), reason))
+                
+                for client in self.server.clients.values():
+                    if 'A' in client.modes or 'O' in client.modes:
+                        self.broadcast(self.nick,
+                                ":%s NOTICE * :The K:Line for %s matches your host!" % \
+                                (SRV_DOMAIN, re_to_irc(host)))
+                        continue
+                    if re.match(host, client.host[0]):
+                        self.broadcast('umode:W', ":%s NOTICE * :%s matches this K:Line." %\
+                            (SRV_DOMAIN, client.client_ident()))
+                        client.request.send(': This host is K:Lined. Reason: %s\n' % reason)
+                        client.handle_quit("K:Lined. Reason: %s" % reason)
+                        client.request.close()
 
             elif cmd.lower() == 'remove':
                 if not ' ' in params:
