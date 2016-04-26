@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # _*_ coding: utf-8 _*_
 import os
 import sys
@@ -30,7 +30,7 @@ def install():
 	# install deps and module
 	data_files = ()
 	setup(name='psyrcd',
-		version="0.16",
+		version="psyrcd-21",
 		description='A pure-python IRCD',
 		author='Luke Brooks',
 		author_email='luke@psybernetics.org',

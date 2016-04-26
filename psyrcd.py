@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # _*_ coding: UTF-8 _*_
 
 # psyrcd the Psybernetics IRC server.
@@ -54,21 +54,22 @@
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
-import sys, os, re, pwd, time, optparse, logging, hashlib, SocketServer, socket, select, ssl
+import sys, os, re, pwd, time, optparse, logging, hashlib, asyncio, socket, ssl
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.20"
+SRV_VERSION     = "psyrcd-0.21"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
 SRV_CREATED     = time.asctime()
 
-MAX_CLIENTS   = 300     # User connections to be permitted before we start denying new connections.
-MAX_IDLE      = 300     # Time in seconds a user may be caught being idle for.
-MAX_NICKLEN   = 12      # Characters per available nickname.
-MAX_CHANNELS  = 200     # Channels per server on the network.
-MAX_TOPICLEN  = 512     # Characters per channel topic.
-MAX_TICKS     = [0,15]  # select()s through active connections before we start pruning for ping timeouts
+MAX_CLIENTS    = 300     # User connections to be permitted before we start denying new connections.
+MAX_IDLE       = 300     # Time in seconds a user may be caught being idle for.
+MAX_NICKLEN    = 12      # Characters per available nickname.
+MAX_CHANNELS   = 200     # Channels per server on the network.
+MAX_TOPICLEN   = 512     # Characters per channel topic.
+MAX_TICKS      = [0,15]  # select()s through active connections before we start pruning for ping timeouts
+PING_FREQUENCY = 120     # Time in seconds between PING messages to clients.
 
 OPER_USERNAME = os.environ.get('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to
@@ -211,7 +212,7 @@ class IRCOperator(object):
                 handler = getattr(self, 'handle_%s' % (params.lower()))
             response = handler(params)
             return response
-        except Exception, e:
+        except Exception as e:
             return 'Internal Error: %s' % e
 
     def handle_seval(self, params):
@@ -318,7 +319,7 @@ class IRCOperator(object):
                     tmp['File'] = script[0].file.split(os.path.sep)[-1]
                     
                     if not options.debug:
-                        f    = file(script[0].file,'r')
+                        f    = open(script[0].file,'r')
                         hash = sha1sum(f.read())
                         f.close()
                         # Add an asterisk next to the filename if modified.
@@ -412,7 +413,7 @@ def scripts(func):
                         return
                     if 'params' in script.env:
                         args = (script['params'],)
-                except Exception, err:
+                except Exception as err:
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                         (SRV_DOMAIN,self.client_ident(), err, script.file))
@@ -433,13 +434,13 @@ def scripts(func):
                         try:
                             script.execute({'client': self, 'channel': channel, 'params': params, 'mode': mode, 'func': func})
                             if 'cancel' in script.env:
-                                if isinstance(script['cancel'], (str, unicode)):
+                                if isinstance(script['cancel'], (str, bytes)):
                                     return(script['cancel'])
                                 else:
                                     return('')
                             if 'params' in script.env:
                                 args = (script['params'],)
-                        except Exception, err:
+                        except Exception as err:
                             logging.error('%s in %s' % (err,script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                 (SRV_DOMAIN,self.client_ident(), err, script.file))
@@ -460,15 +461,17 @@ def links(target):
         return(target(self, *args))
     return(wrapper)
 
-class IRCClient(SocketServer.BaseRequestHandler):
+class IRCClient(object):
     """
     IRC client connect and command handling. Client connection is handled by
     the `handle` method which sets up a two-way communication with the client.
     It then handles commands sent by the client by dispatching them to the
     handle_ methods.
     """
-    def __init__(self, request, client_address, server):
-        self.connected_at  = str(time.time())[:10] 
+    def __init__(self, server, sock, host):
+        self.connected_at       = str(time.time())[:10] 
+        self.server             = server
+        self.request            = sock
         self.last_activity      = 0                    # Subtract this from time.time() to determine idle time.
         self.user               = None                 # The bit before the @
         self.realname           = None                 # Client's real name
@@ -478,7 +481,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
         self.channels           = {}                   # Channels the client is in
         self.oper               = None                 # Assign an IRCOperator object if user opers up
         self.remote             = False                # User is known to us through a server link
-        self.host               = client_address       # Client's hostname / ip.
+        self.host               = host                 # Client's hostname / ip.
         self.rhost              = lookup(self.host[0]) # This users rdns. May return None.
         self.modes              = {'x':1}              # Usermodes set on the client
         self.supported_modes    = {                    # Uppercase modes are oper-only
@@ -500,13 +503,9 @@ class IRCClient(SocketServer.BaseRequestHandler):
         }
 
         # Keeps the hostmask unique which keeps bans functioning:
-        self.hostmask = hashlib.new('sha512', self.host[0]).hexdigest()[:len(self.host[0])]
-        SocketServer.BaseRequestHandler.__init__(self, request, client_address, server)
+        host = self.host[0].encode('utf-8')
+        self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
 
-    def handle(self):
-        """
-        The nucleus of the IRCd.
-        """
         logging.info('Client connected: %s' % self.host[0])
 
         # TLS here. TODO: Recognise other SSL handshakes.
@@ -526,22 +525,32 @@ class IRCClient(SocketServer.BaseRequestHandler):
 
         # Check the server isn't full.
         if len(self.server.clients) >= MAX_CLIENTS:
-            self.request.send(': MAX_CLIENTS exceeded.\n')
+            self.request.send(': MAX_CLIENTS exceeded.\n'.encode('utf-8'))
             self.request.close()
             logging.info('Connection refused to %s: MAX_CLIENTS exceeded.' % self.client_ident())
 
         # Check this host isn't K:Lined.
         for line, attributes in self.server.lines['K'].items():
             if re.match(line, self.host[0]):
-                self.request.send(': This host is K:Lined. Reason: %s\n' % attributes[2])
+                self.request.send(': This host is K:Lined. Reason: %s\n'.encode('utf-8') % attributes[2])
                 self.request.close()
                 logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
 
-        while True:
-            buf = ''
-            try:    ready_to_read, ready_to_write, in_error = select.select([self.request], [], [], 0.1)
-            except: break
+        asyncio.Task(self._handle())
 
+    def _handle(self):
+        try:
+            yield from self.handle()
+        except IOError:
+            pass
+        finally:
+            self.finish()
+
+    def handle(self):
+        """
+        The nucleus of the IRCd.
+        """
+        while True:
            # Write any commands to the client.
 #               if self.remote:
 #                   self.request.send(self.nick, message)
@@ -552,73 +561,62 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 except UnicodeDecodeError:
                     pass
                 logging.debug('to %s: %s' % (self.client_ident(), msg))
-                self.request.send(msg + '\n')
+                self.request.send(msg + '\n'.encode('utf-8'))
 
-            # See if the client has any commands for us.
-            if len(ready_to_read) == 1 and ready_to_read[0] == self.request:
-                try: data = self.request.recv(1024)
-                except Exception, e:
-                    logging.error(e.message)
-                    break
+            buf = yield from self.server.loop.sock_recv(self.request, 1024)
+            buf = buf.decode('utf-8')
+            while buf.find(u"\n") != -1:
+                line, buf = buf.split("\n", 1)
+                line = line.rstrip()
 
-                if not data:
-                    break
-                elif len(data) > 0:
-                    # There is data. Process it and turn it into line-oriented input.
-                    buf += str(data)
+                handler = response = ''
+                try:
+                    logging.debug('from %s: %s' % (self.client_ident(), line))
+                    if ' ' in line:
+                        command, params = line.split(' ', 1)
+                    else:
+                        command = line
+                        params = ''
+                    # The following part checks if a command is in Scripts.commands and calls its __call__ method.
+                    # This allows scripts to replace built-in commands.
+                    script = self.server.scripts.commands.get(command.lower())
+                    if script:
+                        handler = script[0]
+                        response = handler(self,command,params)
+                    else:
+                        handler = getattr(self, 'handle_%s' % (command.lower()), None)
+                        if handler: response = handler(params)
+                    if not handler:
+                        logging.info('No handler for command: %s. Full line: %s' % (command, line))
+                        raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
+                except AttributeError as err:
+                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
+                    self.broadcast('umode:W',response)
+                    logging.error(err)
+                except IRCError as err:
+                    response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
+                    logging.error('%s' % (response))
+              # It helps to comment the following exception when debugging
+                except Exception as err:
+                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
+                    self.broadcast('umode:W',response)
+                    self.broadcast(self.nick,response)
+                    logging.error(err)
+                if response:
+                    logging.debug('to %s: %s' % (self.client_ident(), response))
+                    self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
 
-                    while buf.find("\n") != -1:
-                        line, buf = buf.split("\n", 1)
-                        line = line.rstrip()
-
-                        handler = response = ''
-                        try:
-                            logging.debug('from %s: %s' % (self.client_ident(), line))
-                            if ' ' in line:
-                                command, params = line.split(' ', 1)
-                            else:
-                                command = line
-                                params = ''
-                            # The following part checks if a command is in Scripts.commands and calls its __call__ method.
-                            # This allows scripts to replace built-in commands.
-                            script = self.server.scripts.commands.get(command.lower())
-                            if script:
-                                handler = script[0]
-                                response = handler(self,command,params)
-                            else:
-                                handler = getattr(self, 'handle_%s' % (command.lower()), None)
-                                if handler: response = handler(params)
-                            if not handler:
-                                logging.info('No handler for command: %s. Full line: %s' % (command, line))
-                                raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
-                        except AttributeError, err:
-                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
-                            self.broadcast('umode:W',response)
-                            logging.error(err)
-                        except IRCError, err:
-                            response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
-                            logging.error('%s' % (response))
-                      # It helps to comment the following exception when debugging
-                        except Exception, err:
-                            response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
-                            self.broadcast('umode:W',response)
-                            self.broadcast(self.nick,response)
-                            logging.error(err)
-                        if response:
-                            logging.debug('to %s: %s' % (self.client_ident(), response))
-                            self.request.send(response + '\r\n')
-
-                        # Handle ping timeouts.
-                        if MAX_TICKS[0] >= MAX_TICKS[1]:
-                            for client in self.server.clients.values():
-                                then = int(client.last_activity)
-                                now = int(str(time.time())[:10])
-                                if (now - then) > MAX_IDLE:
-                                    client.finish(response = ':%s QUIT :Ping timeout. Idle %i seconds.' % \
-                                        (client.client_ident(True), now - then))
-                            MAX_TICKS[0] = 0
-                        else:
-                            MAX_TICKS[0] += 1
+                # Handle ping timeouts.
+                if MAX_TICKS[0] >= MAX_TICKS[1]:
+                    for client in self.server.clients.values():
+                        then = int(client.last_activity)
+                        now = int(str(time.time())[:10])
+                        if (now - then) > MAX_IDLE:
+                            client.finish(response = ':%s QUIT :Ping timeout. Idle %i seconds.' % \
+                                (client.client_ident(True), now - then))
+                    MAX_TICKS[0] = 0
+                else:
+                    MAX_TICKS[0] += 1
 #        self.request.close()
 
 #    @links
@@ -672,7 +670,8 @@ class IRCClient(SocketServer.BaseRequestHandler):
         Quickly transmit server notices to client connections.
         """
         if self in self.server.clients.values():
-            self.request.send(':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params))
+            message = ':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params)
+            self.request.send(bytes(message.encode('utf-8')))
         else:
             client = self.server.clients.get(self.nick)
             if client:
@@ -870,7 +869,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                 script = script[0]
                 try:
                     script.execute({'client':self,'mode':mode,'new':True})
-                except Exception, err:
+                except Exception as err:
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s while connecting.' % \
                     (SRV_DOMAIN,self.client_ident(), err, script.file))
@@ -986,11 +985,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                         if 'cancel' in script.env:
                             if len(channel.clients) < 1:
                                 self.server.channels.pop(channel.name)
-                            if isinstance(script['cancel'], (str, unicode)):
+                            if isinstance(script['cancel'], (str, bytes)):
                                 return(script['cancel'])
                             else:
                                 return('')
-                    except Exception, err:
+                    except Exception as err:
                         logging.error('%s in %s' % (err,script.file))
                         self.broadcast('umode:W',':%s ERROR %s found %s in %s while joining %s' % \
                         (SRV_DOMAIN,self.client_ident(),err,script.file,r_channel_name))
@@ -1133,13 +1132,13 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 try:
                                     script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
                                     if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, unicode)):
+                                        if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
                                             return('')
                                     self.broadcast(target,":%s MODE %s %s" % (self.client_ident(True), target, params.split()[1]))
                                     return
-                                except Exception, err:
+                                except Exception as err:
                                     del channel.modes[mode]
                                     logging.error('%s in %s' % (err,script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
@@ -1182,18 +1181,18 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 try:
                                     script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
                                     if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, unicode)):
+                                        if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
                                             return('')
-                                except Exception, err:
+                                except Exception as err:
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                         (SRV_DOMAIN,self.client_ident(),err,script.file))
                                 
                                 if mode in channel.modes:
                                     # Using "/mode -script:" clears all values.
-                                    if isinstance(args, (str, unicode)):
+                                    if isinstance(args, (str, bytes)):
                                         del channel.modes[mode]
                                     
                                     # Here we try to unset the mode if sending "set=False" into the
@@ -1250,12 +1249,12 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 try:
                                     script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
                                     if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, unicode)):
+                                        if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
                                             return
                                     modeline = mode
-                                except Exception, err:
+                                except Exception as err:
                                     del channel.modes[mode]
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
@@ -1313,11 +1312,11 @@ class IRCClient(SocketServer.BaseRequestHandler):
                                 try:
                                     script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
                                     if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, unicode)):
+                                        if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
                                             return('')
-                                except Exception, err:
+                                except Exception as err:
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                     (SRV_DOMAIN,self.client_ident(), err, script.file))
@@ -1424,7 +1423,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             if 'output' in item: scripts.append('%s %s' % (mode, item['output']))
                             else:
                                 scripts.append(mode)
-                        except Exception, err:
+                        except Exceptiona as err:
                             logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                 (SRV_DOMAIN, self.client_ident(), err, script.file))
@@ -1451,7 +1450,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
                             else:
                                 scripts.append(mode)
                             scripts.append(item)
-                        except Exception, err:
+                        except Exception as err:
                             logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                 (SRV_DOMAIN,self.client_ident(), err, script.file))
@@ -1769,7 +1768,7 @@ class IRCClient(SocketServer.BaseRequestHandler):
             if ' ' in params:
                 modeline = ''
                 opername, password = params.split(' ', 1)
-                password = hashlib.sha512(password).hexdigest()
+                password = hashlib.sha512(password.encode('utf-8')).hexdigest()
                 
                 if password == OPER_PASSWORD and opername == OPER_USERNAME:
                     oper = self.server.opers.setdefault(self.nick, IRCOperator(self))
@@ -2067,27 +2066,37 @@ class IRCClient(SocketServer.BaseRequestHandler):
             )
         )
 
-class IRCServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
-    def __init__(self, server_address, RequestHandlerClass):
-        self.servername = SRV_DOMAIN
-        self.channels   = {}        # Existing channels (IRCChannel instances) by channel name
-        self.clients    = {}        # Connected clients (IRCClient instances) by nickname
-        self.opers      = {}        # Authenticated IRCops (IRCOperator instances) by nickname
-        self.scripts    = Scripts() # The scripts object we attach external execution routines to.
-        self.link_key   = None      # Oper-defined pass for accepting connections as server links.
-        self.links      = {}        # Other servers (IRCServerLink instances) by domain or address
-        self.lines      = {         # Bans we check on client connect, against...
-                           'K':{},  # A userhost, locally
-#                          'G':{},  # A userhost, network-wide
-                           'Z':{},  # An IP range, locally
-#                          'GZ':{}  # An IP range, network-wide 
-                          }         # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
-        SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
+class IRCServer(object):
+    def __init__(self, EventLoop, server_address):
+        self.loop        = EventLoop
+        self.loop.server = self
+        self.sock        = socket.socket()
+        self.sock.setblocking(0)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(server_address)
+        self.sock.listen(5)
+        self.servername  = SRV_DOMAIN
+        self.channels    = {}        # Existing channels (IRCChannel instances) by channel name
+        self.clients     = {}        # Connected clients (IRCClient instances) by nickname
+        self.opers       = {}        # Authenticated IRCops (IRCOperator instances) by nickname
+        self.scripts     = Scripts() # The scripts object we attach external execution routines to.
+        self.link_key    = None      # Oper-defined pass for accepting connections as server links.
+        self.links       = {}        # Other servers (IRCServerLink instances) by domain or address
+        self.lines       = {         # Bans we check on client connect, against...
+                            'K':{},  # A userhost, locally
+#                           'G':{},  # A userhost, network-wide
+                            'Z':{},  # An IP range, locally
+#                           'GZ':{}  # An IP range, network-wide 
+                           }         # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
         self.scripts.server = self
+        asyncio.Task(self.serve())
 
+    @asyncio.coroutine
+    def serve(self):
+        while True:
+            sock, host = yield from self.loop.sock_accept(self.sock)
+            sock.setblocking(0)
+            client = IRCClient(self, sock, host)
 
 class ForeignClient(IRCClient):
     """
@@ -2146,7 +2155,7 @@ class IRCServerLink(object):
                 data = str(data).strip()
                 if data == '':
                     continue
-                print "I<", data
+                print("I<", data)
 
                 # server ping/pong?
                 if data.find('PING') != -1:
@@ -2194,7 +2203,7 @@ class Script(object):
                 if not self.code or self.read_on_exec: self.compile()
                 if env: self.env = env
                 self.env['cache'] = self.cache
-                exec self.code in self.env
+                exec(self.code,  self.env)
                 del self.env['__builtins__']
                 if 'cache' in self.env.keys():
                     self.cache = self.env['cache']
@@ -2202,7 +2211,7 @@ class Script(object):
 
         def compile(self,script=''):
                 if self.file:
-                        f = file(self.file, 'r')
+                        f = open(self.file, 'r')
                         self.script = f.read()
                         f.close()
                 elif script: self.script=script
@@ -2223,7 +2232,7 @@ class Script(object):
             try:
                 self.execute({'params':params,'command':command,'client':client})
                 if 'output' in self.env.keys(): return(self['output'])
-            except Exception, err:
+            except Exception as err:
                 logging.error('%s in %s' % (err,self.file))
                 client.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                     (SRV_DOMAIN,client.client_ident(), err, self.file))
@@ -2249,9 +2258,10 @@ class Scripts(object):
         """
         try:
             provides, s = self.init(script, client, True)
-        except:
+        except Exception as err:
+            logging.error(err)
             return
-        
+
         err = None
         for item in provides:
             description = 'No description.'
@@ -2364,7 +2374,7 @@ class Scripts(object):
             raise Exception('self.dir undefined.')
         try:
             script.execute({'init': loading, 'client': client, 'server': self.server})
-        except Exception, err:
+        except Exception as err:
             if not client:
                 logging.error('%s in %s' % (err, script.file))
             else:
@@ -2373,7 +2383,7 @@ class Scripts(object):
             return
         provides = []
         if 'provides' in script.env.keys():
-            if isinstance(script['provides'], (str, unicode)):
+            if isinstance(script['provides'], (str, bytes)):
                 provides.append(script['provides'])
             elif isinstance(script['provides'], list):
                 provides = script['provides']
@@ -2386,7 +2396,13 @@ class Scripts(object):
                 return (provides, script)
             return provides
 
-def sha1sum(data): return(hashlib.sha1(data).hexdigest())
+def ping_routine(EventLoop):
+    """
+    Ping clients and check client idle times.
+    """
+    EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
+
+def sha1sum(data): return(hashlib.sha1(data.encode('utf-8')).hexdigest())
 
 class tabulate(object):
     "Print a list of dictionaries as a table"
@@ -2397,7 +2413,7 @@ class tabulate(object):
         self.ul    = {key:str(ul)*width for heading,key,width in fmt} if ul else None
         self.width = {key:width for heading,key,width in fmt}
     def row(self, data):
-        return(self.fmt.format(**{ k:str(data.get(k,''))[:w] for k,w in self.width.iteritems() }))
+        return(self.fmt.format(**{ k:str(data.get(k,''))[:w] for k,w in self.width.items() }))
     def __call__(self, dataList):
         _r = self.row
         res = [_r(data) for data in dataList]
@@ -2464,7 +2480,7 @@ class Daemon:
             pid = os.fork()
             if pid > 0:
                 sys.exit(0) # End parent
-        except OSError, e:
+        except OSError as e:
             sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
             sys.exit(-2)
         os.setsid()
@@ -2474,14 +2490,14 @@ class Daemon:
             if pid > 0:
                 try: 
                     # TODO: Read the file first and determine if already running.
-                    f = file(pidfile, 'w')
+                    f = open(pidfile, 'w')
                     f.write(str(pid))
                     f.close()
-                except IOError, e:
+                except IOError as e:
                     logging.error(e)
                     sys.stderr.write(repr(e))
                 sys.exit(0) # End parent
-        except OSError, e:
+        except OSError as e:
             sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
             sys.exit(-2)
         for fd in (0, 1, 2):
@@ -2550,10 +2566,10 @@ if __name__ == "__main__":
     (options, args) = parser.parse_args()
 
     if options.ssl_help:
-        print """Keys and certs can be generated with:
+        print("""Keys and certs can be generated with:
 $ %sopenssl%s genrsa 4096 >%s key%s
 $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s""" % \
-(color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end)
+(color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end))
         raise SystemExit
 
     if options.disable_logging:
@@ -2579,14 +2595,14 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     if options.stop or options.restart:
         pid = None
         try:
-            f = file('psyrcd.pid', 'r')
+            f = open('psyrcd.pid', 'r')
             pid = int(f.readline())
             f.close()
             os.unlink('psyrcd.pid')
-        except ValueError, e:
+        except ValueError as e:
             sys.stderr.write('Error in pid file `psyrcd.pid`. Aborting\n')
             sys.exit(-1)
-        except IOError, e:
+        except IOError as e:
             pass
 
         if pid:
@@ -2610,7 +2626,8 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         raise SystemExit
 
     if OPER_PASSWORD == True:
-        OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))).hexdigest()[:20]
+        OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))\
+                            .encode('utf-8')).hexdigest()[:20]
 
     if not sys.stdin.isatty():
         OPER_PASSWORD = sys.stdin.read().strip('\n').split(' ',1)[0]
@@ -2628,8 +2645,8 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
 
     # Detach from console, reparent to init
     if not options.foreground:
-        print "Netadmin login: %s/oper %s %s%s" % \
-            (color.green, OPER_USERNAME, OPER_PASSWORD, color.end)
+        print("Netadmin login: %s/oper %s %s%s" % \
+            (color.green, OPER_USERNAME, OPER_PASSWORD, color.end))
         Daemon(options.pidfile)
     else:
         logging.debug("Netadmin login: %s/oper %s %s%s" % \
@@ -2637,7 +2654,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
 
 
     # Hash the password in memory.
-    OPER_PASSWORD = hashlib.sha512(OPER_PASSWORD).hexdigest()
+    OPER_PASSWORD = hashlib.sha512(OPER_PASSWORD.encode('utf-8')).hexdigest()
 
     if options.ssl_cert and options.ssl_key:
         logging.info("SSL Enabled.")
@@ -2653,19 +2670,22 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     else: scripts_dir = False
 
     # Start
-    ircserver = IRCServer((options.listen_address, int(options.listen_port)), IRCClient)
+    EventLoop = asyncio.get_event_loop()
+    EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
+    ircserver = IRCServer(EventLoop, (options.listen_address, int(options.listen_port)))
+
     try:
         logging.info('Starting psyrcd on %s:%s' % (options.listen_address, options.listen_port))
         if options.preload and scripts_dir:
             for filename in os.listdir(scripts_dir):
                 if os.path.isfile(scripts_dir + filename):
                     ircserver.scripts.load(filename)
-        ircserver.serve_forever()
-    except socket.error, e:
+        EventLoop.run_forever()
+    except socket.error as e:
         logging.error(repr(e))
         sys.exit(-2)
     except KeyboardInterrupt:
-        ircserver.shutdown()
+        EventLoop.stop()
         if options.preload and scripts_dir:
             scripts = []
             for x in ircserver.scripts.i.values():
