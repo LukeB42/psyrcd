@@ -509,19 +509,19 @@ class IRCClient(object):
         logging.info('Client connected: %s' % self.host[0])
 
         # TLS here. TODO: Recognise other SSL handshakes.
-        if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16, socket.MSG_PEEK)):
-            logging.info('%s is using SSL.' % self.host[0])
-            if options.ssl_cert and options.ssl_key:
-                self.request = ssl.wrap_socket(self.request,
-                                 server_side=True,
-                                 certfile=options.ssl_cert,
-                                 keyfile=options.ssl_key,
-                                 ssl_version=ssl.PROTOCOL_SSLv23,
-                                 ca_certs=None,
-                                 do_handshake_on_connect=True,
-                                 suppress_ragged_eofs=True, ciphers=None)
-                self.modes['Z']=1
-            else: self.request.close()
+        #if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16, socket.MSG_PEEK)):
+        #    logging.info('%s is using SSL.' % self.host[0])
+        #    if options.ssl_cert and options.ssl_key:
+        #        self.request = ssl.wrap_socket(self.request,
+        #                         server_side=True,
+        #                         certfile=options.ssl_cert,
+        #                         keyfile=options.ssl_key,
+        #                         ssl_version=ssl.PROTOCOL_SSLv23,
+        #                         ca_certs=None,
+        #                         do_handshake_on_connect=True,
+        #                         suppress_ragged_eofs=True, ciphers=None)
+        #        self.modes['Z']=1
+        #    else: self.request.close()
 
         # Check the server isn't full.
         if len(self.server.clients) >= MAX_CLIENTS:
