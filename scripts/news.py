@@ -131,7 +131,6 @@ if 'func' in dir() and func.__name__ == "handle_privmsg" and COMMAND_PREFIX in p
         if params[1].startswith('articles'):
             res = c.get(params[1])
             if res:
-                print(res)
                 transmit_article_titles(res)
 
         elif params[1].startswith('feeds'):
