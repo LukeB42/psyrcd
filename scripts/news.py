@@ -3,15 +3,20 @@
 # This channel mode permits users to read from a live Emissary instance
 # in-channel, including searching through articles, reviewing feed status and
 # reading articles over IRC. All of the usual Emissary endpoints are supported.
+# To prevent the appearance of flooding use of the +news mode is kept hidden
+# from others. ":news articles" et al. are not be displayed to channel members.
 #
-# Eg: /operserv scripts load news.py
+#     /operserv scripts load news.py
 #     /mode #somechannel +news
-#     /privmsg #somechannel :news feeds?per_page=5
-#     /privmsg #somechannel :news articles/search/Linux
-#     /privmsg #somechannel :news read NTI0NDc5Nw
+#     /privmsg #channel :news feeds?per_page=5
+#     /privmsg #channel :news articles/search/photosynthesis
+#     /privmsg #channel :news read ad8aaf28-0d1d-48c3-a3b9-85bdcaa9ee5b
 #
 # Luke Brooks, 2015
 # MIT License
+#
+# Emissary can be found at https://github.com/LukeB42/Emissary
+#
 
 # Colour key:
 # \x02 bold
@@ -30,22 +35,26 @@ logging = cache['config']['logging']
 def emsg(msg, indent=0):
     if indent:
         client.broadcast(client.nick, ":%s PRIVMSG %s :%s%s" % \
-            (EM_IDENT,channel.name," "*indent, msg))
+            (EM_IDENT, channel.name, " " * indent, msg))
     else:
         client.broadcast(client.nick, ":%s PRIVMSG %s :%s" % \
-            (EM_IDENT,channel.name,msg))
+            (EM_IDENT, channel.name, msg))
 
 def transmit_article_titles(res):
     if res[1] == 200:
         for d in res[0]['data']:
+            if not 'feed' in d:
+                d['feed'] = ''
             if not '://' in d['url']:
                 d['url'] = "http://" + d['url']
             if d['content_available']:
-                emsg("%s: \x037%s\x0F" % (d['feed'],d['title']))
+                print(d)
+                emsg("%s: \x037%s\x0F" % (d['feed'], d['title']))
             else:
-                emsg("%s: %s" % (d['feed'],d['title']))
+                emsg("%s: %s" % (d['feed'], d['title']))
             emsg("%s %s \x0314%s\x0F" % \
-            (dt.datetime.fromtimestamp(int(d['created'])).strftime('%H:%M:%S %d/%m/%Y'),
+            (str(dt.datetime.fromtimestamp(int(d['created']))\
+                .strftime('%H:%M:%S %d/%m/%Y')),
             d['uid'], d['url']))
     else:
         emsg("Error.")
@@ -111,9 +120,9 @@ if 'display' in dir():
     except:
         output = "(no connection)"
 
-if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in params:
+if 'func' in dir() and func.__name__ == "handle_privmsg" and COMMAND_PREFIX in params:
     cancel = True
-    params = ' '.join(params.split(':',1)[1:])
+    params = ' '.join(params.split(':', 1)[1:])
     params = params.split()
     if params[0] == COMMAND_PREFIX:
 
@@ -122,6 +131,7 @@ if 'func' in dir() and func.func_name == "handle_privmsg" and COMMAND_PREFIX in 
         if params[1].startswith('articles'):
             res = c.get(params[1])
             if res:
+                print(res)
                 transmit_article_titles(res)
 
         elif params[1].startswith('feeds'):
