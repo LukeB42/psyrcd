@@ -560,11 +560,12 @@ class IRCClient(object):
                     msg = msg.encode('utf-8', 'ignore')
                 except UnicodeDecodeError:
                     pass
-                logging.debug('to %s: %s' % (self.client_ident(), msg))
+                logging.debug('to %s: %s' % (self.client_ident(), msg.decode('utf-8')))
                 self.request.send(msg + '\n'.encode('utf-8'))
 
             buf = yield from self.server.loop.sock_recv(self.request, 1024)
             buf = buf.decode('utf-8')
+
             while buf.find(u"\n") != -1:
                 line, buf = buf.split("\n", 1)
                 line = line.rstrip()
@@ -582,26 +583,30 @@ class IRCClient(object):
                     script = self.server.scripts.commands.get(command.lower())
                     if script:
                         handler = script[0]
-                        response = handler(self,command,params)
+                        response = handler(self, command, params)
                     else:
                         handler = getattr(self, 'handle_%s' % (command.lower()), None)
                         if handler: response = handler(params)
                     if not handler:
                         logging.info('No handler for command: %s. Full line: %s' % (command, line))
                         raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
+                
                 except AttributeError as err:
-                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
-                    self.broadcast('umode:W',response)
+                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                    self.broadcast('umode:W', response)
                     logging.error(err)
+                
                 except IRCError as err:
                     response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
                     logging.error('%s' % (response))
-              # It helps to comment the following exception when debugging
+                
+                # It helps to comment the following exception when debugging
                 except Exception as err:
-                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN,self.client_ident(),err)
-                    self.broadcast('umode:W',response)
-                    self.broadcast(self.nick,response)
+                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                    self.broadcast('umode:W', response)
+                    self.broadcast(self.nick, response)
                     logging.error(err)
+                
                 if response:
                     logging.debug('to %s: %s' % (self.client_ident(), response))
                     self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))

@@ -22,14 +22,14 @@ DB_FILE            = "./services.db"
 NS_IDENT           = "NickServ!services@" + cache['config']['SRV_DOMAIN']
 MAX_NICKS          = 3
 MAX_RECORDS        = 8192
-WAIT_MINUTES       = None
+WAIT_MINUTES       = 0
 MAX_DAYS_UNPRESENT = 31
 
 def escape(query): return query.replace("'","")
 
 def nsmsg(msg):
     client.broadcast(client.nick, ":%s NOTICE %s :%s" % \
-    (NS_IDENT,client.nick,msg))
+    (NS_IDENT, client.nick, msg))
 
 def fmt_timestamp(ts): return datetime.datetime.fromtimestamp(int(ts)).strftime('%b %d %H:%M:%S %Y')
 
@@ -91,13 +91,13 @@ if 'display' in dir() and 'channel' in dir(): output = 'Registered nicks only.'
 # Here we can determine what the client is doing, and then
 # modify the client, the server, and/or command parameters.
 if 'func' in dir():
-    if func.func_name == 'handle_join':
+    if func.__name__ == 'handle_join':
         if 'channel' in dir():
             if 'c' in channel.modes and not 'R' in client.modes:
                 nsmsg("A registered nick is required to join %s." % channel.name)
                 params = ''
 
-    if func.func_name == 'handle_nick':
+    if func.__name__ == 'handle_nick':
         db = cache['db']
         c = db.cursor()
         c.execute("SELECT * FROM %s WHERE nick=?" % TABLE, (params,))
@@ -255,15 +255,15 @@ if 'command' in dir():
             nsmsg("Unknown help topic.")
 
     elif cmd == 'register':
-        t = divmod(int(client.last_activity) - int(client.connected_at),60)
         if 'R' in client.modes:
             nsmsg("You are already identified.")
         else:
+            t = divmod(int(client.last_activity) - int(client.connected_at), 60)
             if not args: nsmsg("Usage: \x02/NICKSERV REGISTER \x1Fpassword\x0F")
             elif t[0] < WAIT_MINUTES:
                 nsmsg("You must be connected for at least %i minutes before you can register." % WAIT_MINUTES)
             else:
-                password = hashlib.sha1(args).hexdigest()
+                password = hashlib.sha1(args.encode('utf-8')).hexdigest()
                 db = cache['db']
                 c = db.cursor()
                 r = None
@@ -301,8 +301,8 @@ if 'command' in dir():
             if not args: nsmsg("Usage: \x02/NICKSERV IDENTIFY \x1Fpassword\x0F")
             else:
                 warn = ":%s NOTICE * :\x034WARNING\x0F: %s tried to authenticate with an incorrect password." % \
-                    (NS_IDENT,client.nick)
-                password = hashlib.sha1(args).hexdigest()
+                    (NS_IDENT, client.nick)
+                password = hashlib.sha1(args.encode('utf-8')).hexdigest()
                 db = cache['db']
                 c = db.cursor()
                 c.execute("SELECT * FROM %s WHERE nick=?" % TABLE, (client.nick,))
@@ -314,7 +314,7 @@ if 'command' in dir():
                         db.commit()
                         nsmsg("\x02%s\x0F has expired due to inactivity." % nick)
                         client.broadcast('umode:W',':%s NOTICE * :\x02%s\x0F has expired.' % \
-                            (NS_IDENT, client.nick, nick))
+                            (NS_IDENT, client.nick, client.nick))
                     elif r['password'] == password:
                         c.execute("UPDATE %s SET time_use = %f WHERE nick=?" % \
                             (TABLE, time.time()), (client.nick,))
@@ -414,7 +414,7 @@ if 'command' in dir():
             nsmsg("You're not logged in.")
 
     elif cmd == 'info':
-        if not args: nmsg("Usage: \x02/NICKSERV INFO \x1FNICK\x0F")
+        if not args: nsmsg("Usage: \x02/NICKSERV INFO \x1FNICK\x0F")
         else:
             db =cache['db']
             c = db.cursor()

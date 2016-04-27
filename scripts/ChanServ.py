@@ -329,11 +329,11 @@ if 'func' in dir():
     c = Channel(channel.name)
     if c.r:
 
-        if func.func_name == 'handle_join':
+        if func.__name__ == 'handle_join':
             cancel = init_channel(client,channel)
             if not cancel: del cancel
 
-        elif func.func_name == 'handle_topic':
+        elif func.__name__ == 'handle_topic':
             if client.oper or is_op(client.nick, channel):
                 if c['topiclock']:
                     cancel = ':%s NOTICE %s :Topic locked for %s.' % \
@@ -343,7 +343,7 @@ if 'func' in dir():
                     c['topic_by'] = client.nick
                     c['topic_time'] = str(time.time())[:10]
 
-        elif func.func_name == 'handle_kick':
+        elif func.__name__ == 'handle_kick':
             if params.split()[1] == c['owner']:
                 params = params.split()
                 user = client.server.clients.get(params[1])
@@ -361,7 +361,7 @@ if 'func' in dir():
                     cancel = ':%s NOTICE %s :Cannot kicked protected user \x02%s\x0F from \x02%s\x0F.' % \
                         (CS_IDENT,client.nick,user.nick,channel.name)
 
-        elif func.func_name == 'handle_mode':
+        elif func.__name__ == 'handle_mode':
             # Mode Lock
             if c['mlock'] and not client.oper and (client.nick != c['owner'] \
             or (client.nick == c['owner'] and 'R' not in client.modes)):
@@ -845,7 +845,7 @@ if 'command' in dir():
             csmsg("A registered nickname is required for channel registration.")
         else:
             channel_name, password, description = args.split(' ',2)
-            password = hashlib.sha1(args).hexdigest()
+            password = hashlib.sha1(args.encode('utf-8')).hexdigest()
             if not re.match('^#([a-zA-Z0-9_])+$', channel_name):
                 csmsg("\x02%s\x0F is not a valid channel name.")
             else:
@@ -930,7 +930,7 @@ if 'command' in dir():
                         if not 'A' in client.modes and client.nick != c['owner']:
                             csmsg("Access denied.")
                         else:
-                            c['password'] = hashlib.sha1(params).hexdigest()
+                            c['password'] = hashlib.sha1(params.encode('utf-8')).hexdigest()
                             csmsg("Password for %s changed to \x02%s\x0F." % (channel,params))
 
                     elif option == 'desc':
@@ -1708,7 +1708,7 @@ if 'command' in dir():
         if not args or not ' ' in args: csmsg("Usage: \x02/CHANSERV DROP \x1Fchannel\x0F \x02\x1Fpassword\x0F")
         else:
             channel_name,password = args.split()
-            password = hashlib.sha1(password).hexdigest()
+            password = hashlib.sha1(password.encode('utf-8')).hexdigest()
             db = cache['db']
             c = db.cursor()
             c.execute("SELECT * FROM %s WHERE channel=?" % TABLE, (channel_name,))
