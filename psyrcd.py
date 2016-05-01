@@ -68,7 +68,6 @@ MAX_IDLE       = 300     # Time in seconds a user may be caught being idle for.
 MAX_NICKLEN    = 12      # Characters per available nickname.
 MAX_CHANNELS   = 200     # Channels per server on the network.
 MAX_TOPICLEN   = 512     # Characters per channel topic.
-MAX_TICKS      = [0,15]  # select()s through active connections before we start pruning for ping timeouts
 PING_FREQUENCY = 120     # Time in seconds between PING messages to clients.
 
 OPER_USERNAME = os.environ.get('USER', None)
@@ -611,17 +610,6 @@ class IRCClient(object):
                     logging.debug('to %s: %s' % (self.client_ident(), response))
                     self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
 
-                # Handle ping timeouts.
-                if MAX_TICKS[0] >= MAX_TICKS[1]:
-                    for client in self.server.clients.values():
-                        then = int(client.last_activity)
-                        now = int(str(time.time())[:10])
-                        if (now - then) > MAX_IDLE:
-                            client.finish(response = ':%s QUIT :Ping timeout. Idle %i seconds.' % \
-                                (client.client_ident(True), now - then))
-                    MAX_TICKS[0] = 0
-                else:
-                    MAX_TICKS[0] += 1
 #        self.request.close()
 
 #    @links
@@ -2403,8 +2391,22 @@ class Scripts(object):
 
 def ping_routine(EventLoop):
     """
-    Ping clients and check client idle times.
+    Check client idle times every PING_FREQUENCY seconds.
+
+    Clients are responsible for sending periodic PING messages to the server,
+    which is tasked with then responding with a PONG to let the client know
+    we care.
+
+    This routine is to remove connections that are either unresponsive or
+    not playing this game.
     """
+    for client in EventLoop.server.clients.values():
+        then = int(client.last_activity)
+        now = int(str(time.time())[:10])
+        if (now - then) > MAX_IDLE:
+            client.finish(response = ':%s QUIT :Ping timeout. Idle %i seconds.' % \
+                (client.client_ident(True), now - then))
+
     EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
 
 def sha1sum(data): return(hashlib.sha1(data.encode('utf-8')).hexdigest())
