@@ -13,8 +13,7 @@ channel modes, the behavior of which can be redefined while in use.
 
 A NickServ and ChanServ are included as scripts.
 
-#### Note
-Psyrcd is noticably faster with [uvloop](https://github.com/MagicStack/uvloop) installed.
+**Note:** Psyrcd is noticably faster with [uvloop](https://github.com/MagicStack/uvloop) installed.
 
 ![Alt text](doc/psyrcd.png?raw=true "OK now throw NLTK in the mix")
 
