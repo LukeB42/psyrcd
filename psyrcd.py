@@ -54,6 +54,7 @@
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
+from concurrent.futures import ThreadPoolExecutor
 import sys, os, re, pwd, time, optparse, logging, hashlib, asyncio, socket, ssl
 
 try:
@@ -476,10 +477,10 @@ class IRCClient(object):
         self.connected_at       = str(time.time())[:10] 
         self.server             = server
         self.request            = sock
-        self.last_activity      = 0                    # Subtract this from time.time() to determine idle time.
-        self.user               = None                 # The bit before the @
-        self.realname           = None                 # Client's real name
-        self.nick               = None                 # Client's currently registered nickname
+        self.last_activity      = 0                    # Subtract from time.time() to determine idle time
+        self.user               = None                 # The part before the @
+        self.realname           = None                 # Clients' real name
+        self.nick               = None                 # Clients' currently registered nickname
         self.vhost              = None                 # Alternative hostmask for WHOIS requests
         self.send_queue         = []                   # Messages to send to client (strings)
         self.channels           = {}                   # Channels the client is in
@@ -509,23 +510,31 @@ class IRCClient(object):
         # Keeps the hostmask unique which keeps bans functioning:
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
-
+        #threading.Thread.__init__(self, name=self.hostmask)
         logging.info('Client connected: %s' % self.host[0])
 
-        # TLS here. TODO: Recognise other SSL handshakes.
-        #if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16, socket.MSG_PEEK)):
-        #    logging.info('%s is using SSL.' % self.host[0])
-        #    if options.ssl_cert and options.ssl_key:
-        #        self.request = ssl.wrap_socket(self.request,
-        #                         server_side=True,
-        #                         certfile=options.ssl_cert,
-        #                         keyfile=options.ssl_key,
-        #                         ssl_version=ssl.PROTOCOL_SSLv23,
-        #                         ca_certs=None,
-        #                         do_handshake_on_connect=True,
-        #                         suppress_ragged_eofs=True, ciphers=None)
-        #        self.modes['Z']=1
-        #    else: self.request.close()
+        # TODO: Recognise other SSL handshakes.
+        try:
+            if re.match(b'\x16\x03[\x00-\x03]..\x01', self.request.recv(16, socket.MSG_PEEK)):
+                logging.info('%s is using SSL.' % self.host[0])
+                if options.ssl_cert and options.ssl_key:
+                    # SSL client connections are blocking and thus get their
+                    # own thread.
+                    self.request.setblocking(1)
+                    self.request = ssl.wrap_socket(self.request,
+                                     server_side=True,
+                                     certfile=options.ssl_cert,
+                                     keyfile=options.ssl_key,
+                                     ssl_version=ssl.PROTOCOL_SSLv23,
+                                     ca_certs=None,
+                                     do_handshake_on_connect=True,
+                                     suppress_ragged_eofs=True,
+                                     ciphers=None)
+                    self.modes['Z'] = 1
+                else: self.request.close()
+        except BlockingIOError as err:
+            if options.debug:
+                logging.debug("BlockingIOError: %s." % err)
 
         # Check the server isn't full.
         if len(self.server.clients) >= MAX_CLIENTS:
@@ -539,95 +548,116 @@ class IRCClient(object):
                 self.request.send(': This host is K:Lined. Reason: %s\n'.encode('utf-8') % attributes[2])
                 self.request.close()
                 logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
+       
+        if not 'Z' in self.modes:
+            asyncio.Task(self.asyncio_reader())
+        else:
+            future = ThreadPool.submit(self.thread_reader)
+            asyncio.wait(future, return_when=asyncio.ALL_COMPLETED)
 
-        asyncio.Task(self._handle())
-
-    def _handle(self):
+    def asyncio_reader(self):
+        """
+        Container for rotating coroutines.
+        """
         try:
-            yield from self.handle()
-        except IOError:
+            yield from self._handle()
+        except IOError as err:
             pass
         finally:
             self.finish()
 
-    def handle(self):
+    def _handle(self):
+        """
+        Lower part of asyncio_reader.
+        """
+        while True:
+            buf = yield from self.server.loop.sock_recv(self.request, 1024)
+            self.handle(buf)
+
+    def thread_reader(self):
+        """
+        thread_reader is for recv() calls on blocking connections without
+        confusing the interpreter with yield from.
+        """
+        while True:
+            buf = self.request.recv(1024)
+            self.handle(buf)
+
+    def handle(self, buf):
         """
         The nucleus of the IRCd.
         """
-        while True:
-           # Write any commands to the client.
-#               if self.remote:
-#                   self.request.send(self.nick, message)
-           #while self.send_queue:
-           #    msg = self.send_queue.pop(0)
-           #    try:
-           #        msg = msg.encode('utf-8', 'ignore')
-           #    except UnicodeDecodeError:
-           #        pass
-           #    logging.debug('to %s: %s' % (self.client_ident(), msg.decode('utf-8')))
-           #    self.request.send(msg + '\n'.encode('utf-8'))
+        # Receive from the client and turn the data into line-oriented
+        # output.
+        if buf == b'':
+            return
+        
+        buf = buf.decode('utf-8')
 
-            buf = yield from self.server.loop.sock_recv(self.request, 1024)
-            if buf == b'':
-                break
-            buf = buf.decode('utf-8')
+        while buf.find(u"\n") != -1:
+            line, buf = buf.split("\n", 1)
+            line = line.rstrip()
 
-            while buf.find(u"\n") != -1:
-                line, buf = buf.split("\n", 1)
-                line = line.rstrip()
-
-                handler = response = ''
-                try:
-                    logging.debug('from %s: %s' % (self.client_ident(), line))
-                    if ' ' in line:
-                        command, params = line.split(' ', 1)
-                    else:
-                        command = line
-                        params = ''
-                    # The following checks if a command is in Scripts.commands
-                    # and calls its __call__ method, allowing scripts to replace
-                    # built-in commands.
-                    script = self.server.scripts.commands.get(command.lower())
-                    if script:
-                        handler = script[0]
-                        response = handler(self, command, params)
-                    else:
-                        handler = getattr(self, 'handle_%s' % (command.lower()), None)
-                        if handler: response = handler(params)
-                    if not handler:
-                        logging.info('No handler for command: %s. Full line: %s' % (command, line))
-                        raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
-                
-                except AttributeError as err:
-                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
-                    self.broadcast('umode:W', response)
-                    logging.error(err)
-                
-                except IRCError as err:
-                    response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
-                    logging.error('%s' % (response))
-                
-                # It helps to comment the following exception when debugging
-                except Exception as err:
-                    response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
-                    self.broadcast('umode:W', response)
-                    self.broadcast(self.nick, response)
-                    logging.error(err)
-                
-                if response:
-                    logging.debug('to %s: %s' % (self.client_ident(), response))
-                    self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
+            handler = response = ''
+            try:
+                if ' ' in line:
+                    command, params = line.split(' ', 1)
+                else:
+                    command = line
+                    params = ''
+                logging.debug('from %s: %s' % (self.client_ident(),
+                    ' '.join([command.upper(), params])))
+                # The following checks if a command is in Scripts.commands
+                # and calls its __call__ method, allowing scripts to replace
+                # built-in commands.
+                script = self.server.scripts.commands.get(command.lower())
+                if script:
+                    handler = script[0]
+                    response = handler(self, command, params)
+                else:
+                    handler = getattr(self, 'handle_%s' % (command.lower()), None)
+                    if handler: response = handler(params)
+                if not handler:
+                    logging.info('No handler for command: %s. Full line: %s' % (command, line))
+                    raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
+            
+            except AttributeError as err:
+                response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                self.broadcast('umode:W', response)
+                logging.error(err)
+            
+            except IRCError as err:
+                response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
+                logging.error('%s' % (response))
+            
+            # It helps to comment the following exception when debugging
+            except Exception as err:
+                response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                self.broadcast('umode:W', response)
+                self.broadcast(self.nick, response)
+                logging.error(err)
+            
+            if response:
+                logging.debug('to %s: %s' % (self.client_ident(), response))
+                self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
 
 #        self.request.close()
 
 #    @links
-    def broadcast(self,target,message):
+    def broadcast(self, target, message):
         """
         Handle message dispatch to clients.
         """
+        # We log direct messages to clients when caught by * but channel and
+        # privmsgs benefit from the speed improvement brought by keeping
+        # confidence.
         message = message.encode("utf-8") + '\n'.encode("utf-8")
         if target == '*':
             [client.request.send(message) for client in self.server.clients.values()]
+            [logging.debug('to %s: %s' % (client.client_ident(),
+                message.decode("utf-8").strip("\n"))) \
+                for client in self.server.clients.values()]
+
         elif target.startswith('#'):
             channel = self.server.channels.get(target)
             if channel:
@@ -779,8 +809,8 @@ class IRCClient(object):
             if nick.lower() == i.lower():
                 raise IRCError(ERR_NICKNAMEINUSE, 'NICK :%s' % nick)
 
+        # New connection
         if not self.nick:
-            # New connection
             self.nick = nick
             self.server.clients[nick] = self
             self.broadcast(self.nick, ':%s %s %s :%s' % \
@@ -788,7 +818,7 @@ class IRCClient(object):
             self.broadcast(self.nick, ':%s %s %s :Your host is %s, running version %s' % \
                 (self.server.servername, RPL_YOURHOST, self.nick, SRV_DOMAIN, SRV_VERSION))
             self.broadcast(self.nick, ':%s %s %s :This server was created %s' % \
-                (self.server.servername, RPL_CREATED,self.nick,SRV_CREATED))
+                (self.server.servername, RPL_CREATED, self.nick,SRV_CREATED))
             # opers, channels, clients and MOTD
             self.handle_lusers(None)
             self.handle_motd(None)
@@ -798,10 +828,10 @@ class IRCClient(object):
             if self.modes:
                 self.broadcast(self.nick, ':%s MODE %s +%s' % \
                     (self.client_ident(True), self.nick, ''.join(self.modes.keys())))
-            self.broadcast('umode:W',':%s NOTICE *: Client %s connected.' % (SRV_DOMAIN,self.client_ident()))
+            self.broadcast('umode:W',':%s NOTICE *: Client %s connected.' % (SRV_DOMAIN, self.client_ident()))
         else:
+            # User isn't quite changing nick
             if self.server.clients.get(nick, None) == self:
-                # Already registered to user
                 return
             
             else:
@@ -1074,8 +1104,8 @@ class IRCClient(object):
         """
         Handle the MODE command which sets and requests UMODEs and CMODEs
         """
-        # O' God this is a hairy method. It's willing to parse both +mode params
-        # and +mode:param,s for scripts and built-in modes.
+        # This method parses both +mode params and +mode:param,s for scripts
+        # and built-in modes.
         self.last_activity = str(time.time())[:10] 
 #       :nick!user@host MODE (#channel) +mode (args)
         if ' ' in params: # User is attempting to set a mode
@@ -1083,7 +1113,7 @@ class IRCClient(object):
             unknown_modes = ''
             argument = None
             target, mode = params.split(' ', 1)
-            if ' ' in mode: mode, argument = mode.split(' ',1)
+            if ' ' in mode: mode, argument = mode.split(' ', 1)
             if target.startswith('#'):
                 channel = self.server.channels.get(target)
                 if not channel:
@@ -1155,8 +1185,8 @@ class IRCClient(object):
                                         continue
                                     
                                     if i not in channel.modes:
-                                        channel.modes[i]=args
-                                        modeline=modeline+i
+                                        channel.modes[i] = args
+                                        modeline=modeline + i
                             if modeline:
                                 message = ":%s MODE %s +%s" % (self.client_ident(True), target, modeline)
                                 self.broadcast(target, message)
@@ -1379,7 +1409,7 @@ class IRCClient(object):
                             if i in self.supported_modes and i not in self.modes:
                                 if i.isupper() and not self.oper:
                                     continue
-                                user.modes[i]=1
+                                user.modes[i] = 1
                                 modeline = modeline + i
                         
                         if len(modeline) > 0:
@@ -1985,7 +2015,7 @@ class IRCClient(object):
             elif cmd.lower() == 'remove':
                 if not ' ' in params:
                     raise IRCError(ERR_NEDMOREPARAMS, "You didn't specify which K:Line to remove.")
-                host = re_to_irc(params.split()[1],False)
+                host = re_to_irc(params.split()[1], False)
                 if host in self.server.lines['K']:
                     del self.server.lines['K'][host]
                 self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % \
@@ -2070,6 +2100,7 @@ class IRCClient(object):
 
 class IRCServer(object):
     def __init__(self, EventLoop, server_address):
+        self.sock           = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.servername     = SRV_DOMAIN
         self.loop           = EventLoop
         self.loop.server    = self
@@ -2085,8 +2116,8 @@ class IRCServer(object):
                                'Z':{},      # An IP range, locally
 #                              'GZ':{}      # An IP range, network-wide 
                               }             # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
-        self.sock           = socket.socket()
         self.sock.setblocking(0)
+        # Avert "Address already in use" on restarts 
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(server_address)
         self.sock.listen(5)
@@ -2096,7 +2127,6 @@ class IRCServer(object):
     def _server(self):
         while True:
             sock, host = yield from self.loop.sock_accept(self.sock)
-            sock.setblocking(0)
             client = IRCClient(self, sock, host)
 
 class ForeignClient(IRCClient):
@@ -2687,9 +2717,14 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     # Start
     if uvloop != None:
         asyncio.set_event_loop(uvloop.new_event_loop())
-    EventLoop = asyncio.get_event_loop()
+    
+    ThreadPool = ThreadPoolExecutor(MAX_CLIENTS)
+    EventLoop  = asyncio.get_event_loop()
     EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
-    ircserver = IRCServer(EventLoop, (options.listen_address, int(options.listen_port)))
+    ircserver  = IRCServer(EventLoop, (options.listen_address, int(options.listen_port)))
+
+    if options.debug:
+        EventLoop.set_debug(True)
 
     try:
         logging.info('Starting psyrcd on %s:%s' % (options.listen_address, options.listen_port))
@@ -2703,6 +2738,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         sys.exit(-2)
     except KeyboardInterrupt:
         EventLoop.stop()
+        ThreadPool.shutdown()
         if options.preload and scripts_dir:
             scripts = []
             for x in ircserver.scripts.i.values():
