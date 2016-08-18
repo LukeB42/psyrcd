@@ -413,7 +413,10 @@ def scripts(func):
             if mode in s.umodes:
                 script = s.umodes[mode][0]
                 try:
-                    script.execute({'client': self, 'params': params, 'mode': mode, 'func': func})
+                    script.execute({'client': self,
+                                    'params': params,
+                                    'mode':   mode,
+                                    'func':   func})
                     if 'cancel' in script.env:
                         return
                     if 'params' in script.env:
@@ -437,7 +440,11 @@ def scripts(func):
                     if mode in s.cmodes:
                         script = s.cmodes[mode][0]
                         try:
-                            script.execute({'client': self, 'channel': channel, 'params': params, 'mode': mode, 'func': func})
+                            script.execute({'client':  self,
+                                            'channel': channel,
+                                            'params':  params,
+                                            'mode':    mode,
+                                            'func':    func})
                             if 'cancel' in script.env:
                                 if isinstance(script['cancel'], (str, bytes)):
                                     return(script['cancel'])
@@ -577,7 +584,7 @@ class IRCClient(object):
     def thread_reader(self):
         """
         thread_reader is for recv() calls on blocking connections without
-        confusing the interpreter with yield from.
+        confusing the interpreter with `yield from`.
         """
         while True:
             buf = self.request.recv(1024)
@@ -661,7 +668,8 @@ class IRCClient(object):
         elif target.startswith('#'):
             channel = self.server.channels.get(target)
             if channel:
-                [client.request.send(message) for client in channel.clients if not 'D' in client.modes]
+                [client.request.send(message) for client in channel.clients if \
+                    not 'D' in client.modes]
         
         elif target.startswith('ident:'):
             rhost = re_to_irc(target.split(':')[1],False)
@@ -1162,7 +1170,11 @@ class IRCClient(object):
                                 script = self.server.scripts.cmodes[mode][0]
                                 # Send "set=True" into the scripts' namespace so it knows to adjust this channel.
                                 try:
-                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
+                                    script.execute({'client':  self,
+                                                    'channel': channel,
+                                                    'mode':    mode,
+                                                    'args':    args,
+                                                    'set':     True})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1211,7 +1223,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
+                                    script.execute({'client':  self,
+                                                    'channel': channel,
+                                                    'mode':    mode,
+                                                    'args':    args,
+                                                    'set':     False})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1279,7 +1295,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': True})
+                                    script.execute({'client':  self,
+                                                    'channel': channel,
+                                                    'mode':    mode,
+                                                    'args':    args,
+                                                    'set':     True})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1298,15 +1318,22 @@ class IRCClient(object):
                                         continue
                                     
                                     for n in args:
-                                        if (i == 'v' or i == 'h' or i == 'o' or i == 'a' or i == 'q') and (i in channel.supported_modes):
+                                        if (i == 'v' or i == 'h' or i == 'o' or \
+                                        i == 'a' or i == 'q') and (i in channel.supported_modes):
                                             if not i in channel.modes: channel.modes[i]=[]
                                             if not self.oper:
-                                                if (i == 'a' or i == 'q') and (not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_CHANOWNPRIVNEEDED, "%s You're not a channel owner." % channel.name)
+                                                if (i == 'a' or i == 'q') and \
+                                                (not self.nick in channel.modes['q']):
+                                                    raise IRCError(ERR_CHANOWNPRIVNEEDED,
+                                                    "%s You're not a channel owner." % \
+                                                    channel.name)
                                                 
-                                                if (i == 'o') and (not self.nick in channel.modes['o'] and not self.nick in channel.modes['a'] \
+                                                if (i == 'o') and (not self.nick \
+                                                in channel.modes['o'] and not \
+                                                self.nick in channel.modes['a'] \
                                                 and not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_NOTFORHALFOPS, "Halfops cannot set mode %s" % i)
+                                                    raise IRCError(ERR_NOTFORHALFOPS,
+                                                    "Halfops cannot set mode %s" % i)
                                             
                                             if n not in channel.modes[i]:
                                                 channel.modes[i].append(n)
@@ -1316,14 +1343,19 @@ class IRCClient(object):
                                         elif (i == 'b' or i == 'e') and i in channel.supported_modes:
                                             n = re_to_irc(n,False)
                                             if not i in channel.modes: channel.modes[i]=[]
-                                            channel.modes[i].append('%s %s %s' % (n, self.nick, str(time.time())[:10]))
+                                            channel.modes[i].append('%s %s %s' % \
+                                            (n, self.nick, str(time.time())[:10]))
                                             modeline+=i
                             
                             if modeline:
-                                message = ":%s MODE %s +%s %s" % (self.client_ident(True), target, modeline, argument)
+                                message = ":%s MODE %s +%s %s" % \
+                                (self.client_ident(True), target, modeline,
+                                argument)
                                 self.broadcast(target,message)
                             
-                            if unknown_modes: self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
+                            if unknown_modes:
+                                self.broadcast(self.nick,
+                                ':%s %s %s %s :unkown mode(s)' % \
                                 (SRV_DOMAIN, ERR_UNKNOWNMODE, self.nick, unknown_modes))
                         
                             elif mode.startswith('-'):
@@ -1342,7 +1374,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client': self, 'channel': channel, 'mode': mode, 'args': args, 'set': False})
+                                    script.execute({'client':  self,
+                                                    'channel': channel,
+                                                    'mode':    mode,
+                                                    'args':    args,
+                                                    'set':     False})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1369,14 +1405,20 @@ class IRCClient(object):
                                             unknown_modes += n
                                             continue
                                         
-                                        if (i == 'v' or i == 'h' or i == 'o' or i == 'a' or i == 'q') and (i in channel.modes):
+                                        if (i == 'v' or i == 'h' or i == 'o' or \
+                                        i == 'a' or i == 'q') and (i in channel.modes):
                                             if not self.oper:
-                                                if (i == 'a' or i == 'q') and (not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_CHANOWNPRIVNEEDED, "%s You're not a channel owner." % channel.name)
+                                                if (i == 'a' or i == 'q') and \
+                                                (not self.nick in channel.modes['q']):
+                                                    raise IRCError(ERR_CHANOWNPRIVNEEDED,
+                                                    "%s You're not a channel owner." % channel.name)
                                                 
-                                                if (i == 'o') and (not self.nick in channel.modes['o'] and not self.nick in channel.modes['a'] \
+                                                if (i == 'o') and (not self.nick \
+                                                in channel.modes['o'] and not \
+                                                self.nick in channel.modes['a'] \
                                                 and not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_NOTFORHALFOPS, "Halfops cannot unset mode %s" % i)
+                                                    raise IRCError(ERR_NOTFORHALFOPS,
+                                                    "Halfops cannot unset mode %s" % i)
                                             
                                             if n in channel.modes[i]:
                                                 channel.modes[i].remove(n)
@@ -1394,10 +1436,13 @@ class IRCClient(object):
                                             del channel.modes[i]
                                             modeline += i
                             if modeline:
-                                message = ":%s MODE %s -%s %s" % (self.client_ident(True), target, modeline, argument)
+                                message = ":%s MODE %s -%s %s" % \
+                                (self.client_ident(True), target,
+                                modeline, argument)
                                 self.broadcast(target, message)                
                 else:
-                    raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s You are not a channel operator.' % channel.name)
+                    raise IRCError(ERR_CHANOPPRIVSNEEDED,
+                    '%s You are not a channel operator.' % channel.name)
 
             else: # User modes.
                 if (self.nick == target) or self.oper:
@@ -1413,7 +1458,8 @@ class IRCClient(object):
                                 modeline = modeline + i
                         
                         if len(modeline) > 0:
-                            response = ':%s MODE %s +%s' % (self.client_ident(True), user.nick, modeline)
+                            response = ':%s MODE %s +%s' % \
+                            (self.client_ident(True), user.nick, modeline)
                             self.broadcast(self.nick,response)
                             if user.nick != self.nick:
                                 self.broadcast(user.nick, response)
@@ -1427,7 +1473,8 @@ class IRCClient(object):
                                 modeline = modeline + i
                         
                         if len(modeline) > 0:
-                            response = ':%s MODE %s -%s' % (self.client_ident(True), user.nick, modeline)
+                            response = ':%s MODE %s -%s' % \
+                            (self.client_ident(True), user.nick, modeline)
                             self.broadcast(self.nick,response)
                             if user.nick != self.nick:
                                 self.broadcast(user.nick, response)
@@ -1441,18 +1488,22 @@ class IRCClient(object):
                     raise IRCError(ERR_NOSUCHCHANNEL, '%s :%s' % (params, params))
                 
                 if not self.oper and self not in channel.clients:
-                    raise IRCError(ERR_NOTONCHANNEL,'%s :%s You are not in that channel.' % (channel.name, channel.name))
+                    raise IRCError(ERR_NOTONCHANNEL,
+                    '%s :%s You are not in that channel.' % \
+                    (channel.name, channel.name))
                 
                 for mode in channel.modes:
                     if mode in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
                         continue
                     if mode in self.server.scripts.cmodes:
-                        ns = {'client': self, 'channel': channel, 'mode': mode, 'display': True}
+                        ns = {'client': self, 'channel': channel, 'mode': mode,
+                              'display': True}
                         script = self.server.scripts.cmodes[mode][0]
                         try:
                             # Using "item" to avoid race conditions.
                             item = script.execute(ns)
-                            if 'output' in item: scripts.append('%s %s' % (mode, item['output']))
+                            if 'output' in item:
+                                scripts.append('%s %s' % (mode, item['output']))
                             else:
                                 scripts.append(mode)
                         except Exceptiona as err:
@@ -1461,9 +1512,11 @@ class IRCClient(object):
                                 (SRV_DOMAIN, self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
-                self.broadcast(self.nick,':%s 324 %s %s +%s' % (self.server.servername, self.nick, params, modes))
+                self.broadcast(self.nick,':%s 324 %s %s +%s' % \
+                (self.server.servername, self.nick, params, modes))
                 for item in scripts:
-                    self.broadcast(self.nick,':%s 324 %s %s +%s' % (SRV_DOMAIN, self.nick, params, item))
+                    self.broadcast(self.nick,':%s 324 %s %s +%s' % \
+                    (SRV_DOMAIN, self.nick, params, item))
             elif self.oper or params == self.nick:
                 modes = '+'
                 scripts = []
@@ -1488,7 +1541,8 @@ class IRCClient(object):
                                 (SRV_DOMAIN,self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
-                self.broadcast(self.nick,':%s %s %s :%s' % (SRV_DOMAIN, RPL_UMODEIS, params, modes))
+                self.broadcast(self.nick,':%s %s %s :%s' % \
+                (SRV_DOMAIN, RPL_UMODEIS, params, modes))
                 for item in scripts: self.broadcast(self.nick,':%s %s %s %s +%s' % \
                     (SRV_DOMAIN, RPL_UMODEIS, params, item))
 
@@ -1621,11 +1675,16 @@ class IRCClient(object):
                     host = host.split('@')[1]
                     if client.oper:
                         self.broadcast(self.nick, ":%s %s %s %s %s %s %s %s H* :n/a %s" % \
-                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name, client.user, host, SRV_DOMAIN, client.nick, client.realname))
+                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name,
+                        client.user, host, SRV_DOMAIN, client.nick,
+                        client.realname))
                     else:
                         self.broadcast(self.nick, ":%s %s %s %s %s %s %s %s H :n/a %s" % \
-                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name, client.user, host, SRV_DOMAIN, client.nick, client.realname))
-                self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, channel.name))            
+                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name,
+                        client.user, host, SRV_DOMAIN, client.nick,
+                        client.realname))
+                self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
+                (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, channel.name))            
         
         elif self.oper and params == '*':
             for client in self.server.clients.values():
@@ -1633,11 +1692,14 @@ class IRCClient(object):
                 host = host.split('@')[1]
                 if client.oper:
                     self.broadcast(self.nick, ":%s %s %s - %s %s %s %s H* :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host, SRV_DOMAIN, client.nick, client.realname))
+                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
+                    SRV_DOMAIN, client.nick, client.realname))
                 else:
                     self.broadcast(self.nick, ":%s %s %s %s %s %s %s H :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host, SRV_DOMAIN, client.nick, client.realname))
-            self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
+                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
+                    SRV_DOMAIN, client.nick, client.realname))
+            self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
+            (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
         
         else:
             client = self.server.clients.get(params)
@@ -1647,11 +1709,14 @@ class IRCClient(object):
                 host = host.split('@')[1]
                 if client.oper:
                     self.broadcast(self.nick, ":%s %s %s - %s %s %s %s H* :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host, SRV_DOMAIN, client.nick, client.realname))
+                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
+                    SRV_DOMAIN, client.nick, client.realname))
                 else:
                     self.broadcast(self.nick, ":%s %s %s %s %s %s %s H :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host, SRV_DOMAIN, client.nick, client.realname))
-                self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
+                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
+                    SRV_DOMAIN, client.nick, client.realname))
+                self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
+                (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
 
     @scripts
     def handle_topic(self, params):
@@ -1693,7 +1758,8 @@ class IRCClient(object):
             self.broadcast(self.nick, ':%s %s %s %s :%s' % \
                 (SRV_DOMAIN, RPL_TOPIC, self.nick, channel.name, channel.topic))
             self.broadcast(self.nick, ':%s %s %s %s %s %s' % \
-                (SRV_DOMAIN, RPL_TOPICWHOTIME, self.nick, channel.name, channel.topic_by, channel.topic_time))
+                (SRV_DOMAIN, RPL_TOPICWHOTIME, self.nick, channel.name,
+                channel.topic_by, channel.topic_time))
 
     @scripts
     def handle_part(self, params):
@@ -1713,7 +1779,8 @@ class IRCClient(object):
                 if len(channel.clients) < 1:
                     self.server.channels.pop(channel.name)
             else:
-                response = ':%s 403 %s :%s' % (self.server.servername, pchannel, pchannel)
+                response = ':%s 403 %s :%s' % \
+                (self.server.servername, pchannel, pchannel)
                 self.broadcast(self.nick,response)
 
     @scripts
@@ -1741,7 +1808,8 @@ class IRCClient(object):
 
         if not self.oper and self.nick not in channel.modes['h'] and self.nick not in channel.modes['o'] \
         and self.nick not in channel.modes['a'] and self.nick not in channel.modes['q']:
-            return(':%s %s %s %s :You are not a channel operator.' % (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name))
+            return(':%s %s %s %s :You are not a channel operator.' % \
+            (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name))
 
         target = self.server.clients.get(target)
         if not target:
@@ -1778,7 +1846,8 @@ class IRCClient(object):
         Implements the /list command
         """
         self.last_activity = str(time.time())[:10] 
-        self.broadcast(self.nick, ':%s %s %s Channel :Users  Name' % (SRV_DOMAIN, RPL_LISTSTART, self.nick))
+        self.broadcast(self.nick, ':%s %s %s Channel :Users  Name' % \
+            (SRV_DOMAIN, RPL_LISTSTART, self.nick))
         for channel in self.server.channels.values():
             if ('s' not in channel.modes) or ('S' in self.modes):
                 tmp_modes = []
@@ -1786,7 +1855,8 @@ class IRCClient(object):
                     if mode not in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
                         tmp_modes.append(mode)
                 self.broadcast(self.nick, ':%s %s %s %s %i :[+%s] %s' % \
-                (SRV_DOMAIN,RPL_LIST, self.nick, channel.name, len(channel.clients), ''.join(tmp_modes), channel.topic))
+                (SRV_DOMAIN,RPL_LIST, self.nick, channel.name, len(channel.clients),
+                ''.join(tmp_modes), channel.topic))
         return(':%s %s %s :End of /LIST' % (SRV_DOMAIN, RPL_LISTEND, self.nick))
 
     @scripts
