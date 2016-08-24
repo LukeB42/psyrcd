@@ -705,18 +705,18 @@ class IRCClient(object):
             if client:
                 client.request.send(message)
 
-    def write(self, *params):
+    def write(self, *params, msgprefix=":%s NOTICE " % SRV_DOMAIN):
         """
         Quickly transmit server notices to client connections.
         """
         for msg in map(str, params):
             if self in self.server.clients.values():
-                message = ':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, msg)
-                self.request.send(bytes(message.encode('utf-8')))
+                self.request.send(bytes('{0}{1} :{2}\n'
+                    .format(msgprefix, self.nick, msg).encode('utf-8')))
             else:
                 client = self.server.clients.get(self.nick)
                 if client:
-                    client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, msg))
+                    client.send_queue.append('%s%s :%s' % (msgprefix, self.nick, msg))
 
     @scripts
     def handle_privmsg(self, params):
