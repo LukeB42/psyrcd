@@ -63,7 +63,7 @@ except ImportError:
     uvloop = None
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-0.21"
+SRV_VERSION     = "psyrcd-1.0.22"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
