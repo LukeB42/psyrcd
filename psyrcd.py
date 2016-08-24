@@ -79,7 +79,7 @@ PING_FREQUENCY = 120  # Time in seconds between PING messages to clients.
 OPER_USERNAME = os.environ.get('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to
                         # disable the oper system, a string of your choice or
-                        # pipe at runtime: openssl rand -base64 32 | psyrcd --preload -f
+                        # pipe at runtime: openssl rand -base64 32 | psyrcd -f
 # IRC numerics by name
 RPL_WELCOME           = '001'
 RPL_YOURHOST          = '002'
@@ -338,7 +338,7 @@ class IRCOperator(object):
             if not table:
                 table = "There are no scripts loaded."
             for line in table.split('\n'):
-                self.client.msg(line)
+                self.client.write(line)
             del fmt, table, data, tmp
         
         # /operserv scripts list (list what's available)
@@ -362,10 +362,10 @@ class IRCOperator(object):
                 if not table:
                     table = "There are no scripts in %s." % s.dir
                 for line in table.split('\n'):
-                    self.client.msg(line)
+                    self.client.write(line)
                 del fmt, table, data, tmp
             else:
-                self.client.msg('A nonexistent path was defined as the scripts directory.')
+                self.client.write('A nonexistent path was defined as the scripts directory.')
         
         elif cmd == 'load':
             s.load(args, self.client)
@@ -705,17 +705,18 @@ class IRCClient(object):
             if client:
                 client.request.send(message)
 
-    def msg(self, params):
+    def write(self, *params):
         """
         Quickly transmit server notices to client connections.
         """
-        if self in self.server.clients.values():
-            message = ':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, params)
-            self.request.send(bytes(message.encode('utf-8')))
-        else:
-            client = self.server.clients.get(self.nick)
-            if client:
-                client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, params))
+        for msg in map(str, params):
+            if self in self.server.clients.values():
+                message = ':%s NOTICE %s :%s\n' % (SRV_DOMAIN, self.nick, msg)
+                self.request.send(bytes(message.encode('utf-8')))
+            else:
+                client = self.server.clients.get(self.nick)
+                if client:
+                    client.send_queue.append(':%s NOTICE %s :%s' % (SRV_DOMAIN, self.nick, msg))
 
     @scripts
     def handle_privmsg(self, params):
@@ -1279,9 +1280,9 @@ class IRCClient(object):
                                         modeline = modeline + i
                             if mode in channel.modes:
                                 if isinstance(channel.modes[mode], list):
-                                    self.msg('%s +%s contains \x02%s\x0F.' % \
+                                    self.write('%s +%s contains \x02%s\x0F.' % \
                                             (channel.name, mode, '\x0F, \x02'.join(channel.modes[mode])))
-                                self.msg('Use \x02\x1F/MODE %s -%s:\x0F to clear.' % (channel.name,mode))
+                                self.write('Use \x02\x1F/MODE %s -%s:\x0F to clear.' % (channel.name,mode))
                             
                             elif modeline:
                                 message = ":%s MODE %s -%s" % (self.client_ident(True), target, modeline)
@@ -2090,7 +2091,7 @@ class IRCClient(object):
                     data.append(tmp)
                 fmt = format(data)
                 table = tabulate(fmt, ul='-')(data)
-                for line in table.split('\n'): self.msg(line)
+                for line in table.split('\n'): self.write(line)
                 del data, fmt, table, t, tmp
                 return
 
