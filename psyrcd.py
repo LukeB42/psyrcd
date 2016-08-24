@@ -710,13 +710,15 @@ class IRCClient(object):
         Quickly transmit server notices to client connections.
         """
         for msg in map(str, params):
-            if self in self.server.clients.values():
-                self.request.send(bytes('{0}{1} :{2}\n'
-                    .format(msgprefix, self.nick, msg).encode('utf-8')))
-            else:
-                client = self.server.clients.get(self.nick)
-                if client:
-                    client.send_queue.append('%s%s :%s' % (msgprefix, self.nick, msg))
+            for line in msg.splitlines():
+                if self in self.server.clients.values():
+                    self.request.send(bytes('{0}{1} :{2}\n'
+                        .format(msgprefix, self.nick, line).encode('utf-8')))
+                else:
+                    client = self.server.clients.get(self.nick)
+                    if client:
+                        client.send_queue.append('%s%s :%s' % \
+                            (msgprefix, self.nick, line))
 
     @scripts
     def handle_privmsg(self, params):
@@ -2090,8 +2092,7 @@ class IRCClient(object):
                     tmp['Reason'] = attributes[2]
                     data.append(tmp)
                 fmt = format(data)
-                table = tabulate(fmt, ul='-')(data)
-                for line in table.split('\n'): self.write(line)
+                self.write(tabulate(fmt, ul='-')(data))
                 del data, fmt, table, t, tmp
                 return
 
