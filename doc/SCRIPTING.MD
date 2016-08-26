@@ -10,7 +10,13 @@ Fix TODO comments.
 
 #Scripting
 
-### How to
+## Design rationale
+
+The ideal scripting API might rely on functions that have specific names. This hasn't been adopted yet in Psyrcd because the current design puts less pressure on memory resources.
+
+It is very likely that this style of scripting will be adopted in future as it will allow run-time metaprogramming at the expense of more __code__ objects.
+
+## How to
 | Command       | Help              |
 | ------------- |-------------|
 | /operserv scripts                   | Lists all loaded scripts. Indicates file modifications if `--debug` isn't being used. |
@@ -48,11 +54,6 @@ For example: `/mode #channel +lang:en`
 
 `channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}`
 
-### Design rationale
-
-The ideal scripting API might rely on functions that have specific names. This hasn't been adopted yet in Psyrcd because it puts less pressure on memory resources.
-
-It is very likely that this style of scripting will be adopted in future as it will allow run-time metaprogramming at the expense of more __code__ objects.
 
 ---
 
