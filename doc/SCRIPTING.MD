@@ -16,14 +16,11 @@ Fix TODO comments.
 | /operserv scripts                   | Lists all loaded scripts. Indicates file modifications if `--debug` isn't being used. |
 | /operserv scripts list              | Lists all available scripts.      |
 | /operserv load scriptname           | Loads the specified file as a code object using a specific namespace, where a variable called `init` is set to `True`. |
-| /operserv srcipts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`.|
-
-
-This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
+| /operserv srcipts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`. This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed. |
 
 Possible namespaces look like the following:
 
-`namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['set':bool,'args':args/'display':True],['line':line,'func':func]}`
+`namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['setting_mode':bool,'args':args/'display':True],['line':line,'func':func]}`
 
 Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
 
