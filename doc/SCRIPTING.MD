@@ -7,13 +7,14 @@ Fix TODO comments.
 
 #Scripting
 
-/operserv scripts                      Lists all loaded scripts. Indicates file modifications if --debug isn't being used.
+### How to
+| Command       | Help              |
+| ------------- |:-------------:|
+| /operserv scripts                   | Lists all loaded scripts. Indicates file modifications if `--debug` isn't being used. |
+| /operserv scripts list              | Lists all available scripts.      |
+| /operserv load scriptname           | Loads the specified file as a code object using a specific namespace, where a variable called `init` is set to `True`. |
+| /operserv srcipts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`.|
 
-/operserv scripts list                 Lists all available scripts.
-
-/operserv scripts load scriptname      Loads the specified file as a code object using a specific namespace, where a variable called 'init' is set to True.
-
-/operserv scripts unload scriptname    Unloads the specified file by executing its code object with 'init' set to False.
 
 This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed.
 
@@ -46,6 +47,14 @@ Decorator on handle_* will send `self,channel,func,params` into your scripts def
 For example: /mode #channel +lang:en
 
 channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}
+
+### Design rationale
+
+The ideal scripting API might rely on functions that have specific names. This hasn't been adopted yet in Psyrcd because it puts less pressure on memory resources.
+
+It is very likely that this style of scripting will be adopted in future as it will allow run-time metaprogramming at the expense of more __code__ objects.
+
+---
 
 #The Future
 /operserv connect server:port key; generate key at runtime.
