@@ -63,7 +63,7 @@ except ImportError:
     uvloop = None
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-1.0.22"
+SRV_VERSION     = "psyrcd-1.0.23"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -1174,11 +1174,11 @@ class IRCClient(object):
                                 script = self.server.scripts.cmodes[mode][0]
                                 # Send "set=True" into the scripts' namespace so it knows to adjust this channel.
                                 try:
-                                    script.execute({'client':  self,
-                                                    'channel': channel,
-                                                    'mode':    mode,
-                                                    'args':    args,
-                                                    'set':     True})
+                                    script.execute({'client':           self,
+                                                    'channel':          channel,
+                                                    'mode':             mode,
+                                                    'args':             args,
+                                                    'setting_mode':     True})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1229,11 +1229,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':  self,
-                                                    'channel': channel,
-                                                    'mode':    mode,
-                                                    'args':    args,
-                                                    'set':     False})
+                                    script.execute({'client':           self,
+                                                    'channel':          channel,
+                                                    'mode':             mode,
+                                                    'args':             args,
+                                                    'setting_mode':     False})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1304,11 +1304,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':  self,
-                                                    'channel': channel,
-                                                    'mode':    mode,
-                                                    'args':    args,
-                                                    'set':     True})
+                                    script.execute({'client':       self,
+                                                    'channel':      channel,
+                                                    'mode':         mode,
+                                                    'args':         args,
+                                                    'setting_mode': True})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
@@ -1383,11 +1383,11 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':  self,
-                                                    'channel': channel,
-                                                    'mode':    mode,
-                                                    'args':    args,
-                                                    'set':     False})
+                                    script.execute({'client':       self,
+                                                    'channel':      channel,
+                                                    'mode':         mode,
+                                                    'args':         args,
+                                                    'setting_mode': False})
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])

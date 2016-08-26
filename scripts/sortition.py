@@ -1,9 +1,12 @@
 # sortition.py for Psyrcd.
 # Implements channel mode +sortition
-# https://en.wikipedia.org/wiki/Sortition
+#
+# Usage: /mode #chan +sortition:5
+# Where 5 denotes an interval of five minutes.
 #
 # This channel mode de-ops active channel operators and selects a random 1/4 of
 # the channel to be operators every n minutes.
+# https://en.wikipedia.org/wiki/Sortition
 #
 # Luke Brooks, 2015
 # MIT License
@@ -37,11 +40,12 @@ if 'display' in dir():
     e      = int(time.time()) - channel.modes[MODE_NAME][1]
     # Minutes to election
     m      = int((d - e) / 60)
-    if m  == 0: m += 1
+    if m  == 0:
+        m += 1
     output = "(Next election in %i minute%s.)" % (m, 's' if m > 1 else '')
 
 # Randomly elected operators can alter the duration but can't remove the mode.
-if 'set' in dir():
+if 'setting_mode' in dir():
     if set:
         if not args:
             message = "Please specify a duration in minutes. Eg: +%s:20" % MODE_NAME
@@ -69,13 +73,15 @@ if 'func' in dir():
     if (now-then) >= duration:
         channel.modes[MODE_NAME][1] = now
         # Select a new administration
-        count = len(channel.clients) / 4
-        if count == 0: count += 1
+        count = int(len(channel.clients) / 4)
+        if count == 0:
+            count += 1
 
         administration = random.sample(channel.clients, count)
 
         # Grab a client object to broadcast de-op messages with
-        for client in channel.clients: break
+        for client in channel.clients:
+            break
 
         # Remove existing channel operators
         for o in channel.ops:

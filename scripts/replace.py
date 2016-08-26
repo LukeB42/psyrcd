@@ -10,14 +10,14 @@
 #
 
 if 'init' in dir():
-    provides = "cmode:G:Replaces unwanted phrases."
+    provides = "cmode:G:Substitutes phrases."
 
 if 'display' in dir():
     if client.oper:
         phrases = str(channel.modes["G"])
         output  = "phrase%s: %s" % ('s' if len(phrases) > 1 else '', phrases)
 
-if 'set' in dir():
+if 'setting_mode' in dir():
     if set:
         if not "G" in channel.modes or \
             not isinstance(channel.modes["G"], list):
@@ -25,14 +25,14 @@ if 'set' in dir():
         
         # Ensure only tuple pairs are in the structure for this mode
         f = lambda x: isinstance(x, tuple)
-        channel.modes["G"] = filter(f, channel.modes["G"])
+        channel.modes["G"] = list(filter(f, channel.modes["G"]))
         
         # Check args are an even number
         if not len(args) % 2:
             
             # Turn into tuples
             def chunks(l, n):
-                for i in xrange(0, len(l), n):
+                for i in range(0, len(l), n):
                     yield l[i:i+n]
             
             args = [tuple(x) for x in chunks(args, 2)]
@@ -68,7 +68,7 @@ if 'set' in dir():
             client.broadcast(channel.name, response)
 
 # Replace phrases when encountered
-if 'func' in dir() and func.func_name == "handle_privmsg":
+if 'func' in dir() and func.__name__ == "handle_privmsg":
     params = params.split(":",1)
     line = params[1].split()
     for arg in channel.modes["G"]:
