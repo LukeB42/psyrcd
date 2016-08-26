@@ -1,8 +1,11 @@
 #Todo
 
-Check the PID file on startup. Issue a warning and raise SystemExit if psyrcd is already running.
-Implement /notice and possibly /userhost
+Issue a warning and raise SystemExit if psyrcd is already running.
+
+Implement /userhost and /who.
+
 Implement all user and channel modes.
+
 Fix TODO comments.
 
 #Scripting
