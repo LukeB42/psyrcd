@@ -16,7 +16,7 @@ Fix TODO comments.
 | /operserv scripts                   | Lists all loaded scripts. Indicates file modifications if `--debug` isn't being used. |
 | /operserv scripts list              | Lists all available scripts.      |
 | /operserv load scriptname           | Loads the specified file as a code object using a specific namespace, where a variable called `init` is set to `True`. |
-| /operserv srcipts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`. This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed. |
+| /operserv scripts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`. This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed. |
 
 Possible namespaces look like the following:
 
