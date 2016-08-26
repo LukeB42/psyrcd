@@ -1,12 +1,3 @@
-#Todo
-
-Issue a warning and raise SystemExit if psyrcd is already running.
-
-Implement /userhost and /who.
-
-Implement all user and channel modes.
-
-Fix TODO comments.
 
 #Scripting
 
@@ -70,4 +61,14 @@ decorate `.broadcast()` so it transmits messages across server links. Recipients
 
 #Known Errors
 Windows doesn't have `fork()`. Run in the foreground or Cygwin.
+
+#Todo
+
+Issue a warning and raise SystemExit if psyrcd is already running.
+
+Implement /userhost and /who.
+
+Implement all user and channel modes.
+
+Fix TODO comments.
 
