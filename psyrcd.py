@@ -55,7 +55,7 @@
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
 from concurrent.futures import ThreadPoolExecutor
-import sys, os, re, pwd, time, optparse, logging, hashlib, asyncio, socket, ssl
+import sys, os, re, pwd, time, optparse, logging, hashlib, asyncio, socket, ssl, json
 
 try:
     import uvloop # https://github.com/MagicStack/uvloop
@@ -63,7 +63,7 @@ except ImportError:
     uvloop = None
 
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-1.0.23"
+SRV_VERSION     = "psyrcd-1.0.24"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -231,14 +231,51 @@ class IRCOperator(object):
         Linking is disabled by default until a local passphrase is defined.
         /operserv setkey server-link-passphrase
         """
-        pass
+        if not "N" in self.client.modes:
+            return ": Network Administrators only."
 
-    def handle_connect(self, params):
+        if not params or len(params) < 40:
+            return ": Error: New link keys must be at least 40 characters in length."
+
+        self.client.server.link_key = params.split()[0]
+        self.client.broadcast("umode:W", ":%s NOTICE * :%s has updated the link key for %s." % \
+            (SRV_DOMAIN, self.client.client_ident(True), SRV_DOMAIN))
+
+    def handle_getkey(self, params):
+        """
+        This command permits Network Administrators to obtain the active server
+        link key for the host they're connected to.
+        """
+        if not "N" in self.client.modes:
+            return ": Network Administrators only."
+        
+        self.client.write(self.client.server.link_key)
+
+    def handle_slink(self, params):
         """
         Connect to another instance of psyrcd and attempt to synchronise objects.
-        /operserv connect hostname[:port] remote-passphrase
+        /operserv slink hostname[:port] remote-passphrase
         """
-        pass
+        if not "N" in self.client.modes:
+            return ": Network Administrators only."
+        if not ' ' in params or len(params.split()) != 2:
+            self.client.write("Usage: OPERSERV SLINK rhost:port link_key")
+            return
+        rhost, link_key = params.split(" ", 1)
+        self.client.server.link_server(self.client, rhost, link_key)
+
+    def handle_squit(self, params):
+        """
+        Disconnect a instance of psyrcd and clean up.
+        /operserv squit hostname[:port]
+        """
+        if not "N" in self.client.modes:
+            return ": Network Administrators only."
+        
+        if not params or params.lower() == "squit":
+            self.client.write("Usage: OPERSERV SQUIT <RHOST>")
+            return
+        return self.client.server.unlink_server(self.client, params)
 
     def handle_dump(self, params):
         """
@@ -373,7 +410,7 @@ class IRCOperator(object):
         elif cmd == 'unload':
             s.unload(args, self.client)
 
-    def handle_sajoin(self,params):
+    def handle_sajoin(self, params):
         """
         Permits an IRC Operator to force a client to JOIN a channel.
         """
@@ -381,21 +418,13 @@ class IRCOperator(object):
         victim = self.client.server.clients.get(target)
         if victim: victim.handle_join(channel)
 
-    def handle_sapart(self,params):
+    def handle_sapart(self, params):
         """
         Permits an IRC Operator to force a client to PART a channel.
         """
         target, channel = params.split()
         victim = self.client.server.clients.get(target)
         if victim: victim.handle_part(channel)
-
-    def handle_sjoin(self,params):
-        """
-        Join the user into a randomly named channel with modes +iarpstn.
-        Doesn't show up in /list. /names returns [redacted]. PRIVMSG filters names to [redacted]
-        """
-        pass
-
 
 def scripts(func):
     def wrapper(self, *args, **kwargs):
@@ -445,15 +474,17 @@ def scripts(func):
                                             'params':  params,
                                             'mode':    mode,
                                             'func':    func})
-                            if 'cancel' in script.env:
+                            
+                            if 'cancel' in s.env:
                                 if isinstance(script['cancel'], (str, bytes)):
                                     return(script['cancel'])
                                 else:
                                     return('')
                             if 'params' in script.env:
                                 args = (script['params'],)
+                        
                         except Exception as err:
-                            logging.error('%s in %s' % (err,script.file))
+                            logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                                 (SRV_DOMAIN,self.client_ident(), err, script.file))
         return func(self, *args)
@@ -468,9 +499,12 @@ def disabled(func):
         return('')
     return(wrapper)
 
-def links(target):
-    def wrapper(self, *args):
-        return(target(self, *args))
+def links(func):
+    def wrapper(self, *args, **kwargs):
+        for link in self.server.links.values():
+            link[2].write(str(args))
+        return(func(self, *args))
+    wrapper.__doc__ = func.__doc__
     return(wrapper)
 
 class IRCClient(object):
@@ -502,7 +536,8 @@ class IRCClient(object):
             'D':"Deaf. User does not recieve channel messages.",
             'H':"Hide ircop line in /whois.",
 #           'I':"Invisible. Doesn't appear in /whois, /who, /names, doesn't appear to /join, /part or /quit",
-#           'N':"Network Administrator.",
+            'L':"Connection is a remote server link.",
+            'N':"Network Administrator.",
             'O':"IRC Operator.",
 #           'P':"Protected. Blocks users from kicking, killing, or deoping the user.",
 #           'p':"Hidden Channels. Hides the channels line in the users /whois",
@@ -650,7 +685,7 @@ class IRCClient(object):
 
 #        self.request.close()
 
-#    @links
+    @links
     def broadcast(self, target, message):
         """
         Handle message dispatch to clients.
@@ -720,6 +755,7 @@ class IRCClient(object):
                         client.send_queue.append('%s%s :%s' % \
                             (msgprefix, self.nick, line))
 
+    @links
     @scripts
     def handle_privmsg(self, params):
         """
@@ -760,6 +796,7 @@ class IRCClient(object):
             if client: self.broadcast(client.nick,message)
             else: raise IRCError(ERR_NOSUCHNICK, '%s' % target)
 
+    @links
     @scripts
     def handle_notice(self, params):
         """
@@ -804,6 +841,7 @@ class IRCClient(object):
             else:
                 raise IRCError(ERR_NOSUCHNICK, '%s' % target)
 
+    @links
     @scripts
     def handle_nick(self, params):
         """
@@ -896,6 +934,7 @@ class IRCClient(object):
                 # Send a notification of the nick change to the client itself
                 self.broadcast(self.nick,message)
 
+    @links
     @scripts
     def handle_user(self, params):
         """
@@ -919,8 +958,54 @@ class IRCClient(object):
                     (SRV_DOMAIN,self.client_ident(), err, script.file))
             return('')
 
+    @links
     @scripts
-    def handle_lusers(self,params):
+    def handle_server(self, params):
+        """
+        Permit a remote server to negotiate linking.
+        """
+        if self.user or self.nick:
+            self.write("Error: This command is reserved for server connections only.")
+            self.client.broadcast(
+                "umode:W",
+                ":%s NOTICE * :Warn: %s has tried the SERVER command. %s is not a remote server." % \
+                (SRV_DOMAIN, self.client.client_ident(), self.client.client_ident()))
+            return
+        
+        if not params or len(params.split()) != 4:
+            self.client.broadcast(
+                "umode:W",
+                ":%s NOTICE * :%s tried to negotiate a server link." % \
+                (SRV_DOMAIN, self.client.client_ident()))
+            self.finish()
+
+        version, domain, net_name, link_key = params.split()
+
+        lmajor, lminor, lrevision = SRV_VERSION.split(".")
+        lmajor = re.findall("[0-9]", lmajor)
+
+        rmajor, rminor, rrevision = version.split(".")
+        rmajor = re.findall("[0-9]", rmajor)
+
+        if rmajor < lmajor:
+            self.client.broadcast(
+                "umode:W",
+                ":%s NOTICE * :%s tried negotiating a server link from version %s." % \
+                (SRV_DOMAIN, self.client.client_ident(), version))
+            self.finish()
+
+        if link_key != self.server.link_key:
+            self.client.broadcast(
+                "umode:W",
+                ":%s NOTICE * :%s tried negotiating a server link using an invalid link key." % \
+                (SRV_DOMAIN, self.client.client_ident()))
+            self.finish()
+
+        return ": ACCEPTED"
+    
+    @links
+    @scripts
+    def handle_lusers(self, params):
         """
         Handle the /lusers command
         """
@@ -931,8 +1016,9 @@ class IRCClient(object):
         self.broadcast(self.nick, ':%s %s %s :I have %i clients' % \
             (self.server.servername, RPL_LUSERME, self.nick, len(self.server.clients)))
 
+    @links
     @scripts
-    def handle_motd(self,params):
+    def handle_motd(self, params):
         if os.path.exists('MOTD'):
             MOTD = open('MOTD')
             for line in MOTD:
@@ -941,8 +1027,9 @@ class IRCClient(object):
             self.broadcast(self.nick, ":%s 372 %s :- MOTD file missing." % (SRV_DOMAIN, self.nick))
         self.broadcast(self.nick, ':%s 376 %s :End of MOTD command.' % (self.server.servername, self.nick))
 
+    @links
     @scripts
-    def handle_rules(self,params):
+    def handle_rules(self, params):
         if os.path.exists('RULES'):
             RULES = open('RULES')
             for line in RULES:
@@ -958,6 +1045,7 @@ class IRCClient(object):
         self.last_activity = str(time.time())[:10] 
         return(':%s PONG :%s' % (self.server.servername, self.server.servername))
 
+    @links
     @scripts
     def handle_join(self, params):
         """
@@ -1111,6 +1199,7 @@ class IRCClient(object):
                     (self.server.servername, self.nick, channel.name))
                 del tmp, nicks, v, h, o, a, q
 
+    @links
     @scripts
     def handle_mode(self, params):
         """
@@ -1555,6 +1644,7 @@ class IRCClient(object):
                 for item in scripts: self.broadcast(self.nick,':%s %s %s %s +%s' % \
                     (SRV_DOMAIN, RPL_UMODEIS, params, item))
 
+    @links
     @scripts
     def handle_invite(self, params):
         """
@@ -1585,6 +1675,7 @@ class IRCClient(object):
                 raise IRCError(ERR_CHANOPPRIVSNEEDED, '%s :%s You are not a channel operator.' % \
                     (channel.name, channel.name))
 
+    @links
     @scripts
     def handle_knock(self, params):
         self.last_activity = str(time.time())[:10] 
@@ -1598,6 +1689,7 @@ class IRCClient(object):
                     (SRV_DOMAIN, self.nick, channel.name)
                 self.broadcast(self.nick, response)
 
+    @links
     @scripts
     def handle_whois(self, params):
         """
@@ -1680,6 +1772,7 @@ class IRCClient(object):
             raise IRCError(ERR_UNKNOWNCOMMAND, '%s is a cool guy.' % \
                 params.split(' ', 1)[0])
 
+    @links
     @scripts
     def handle_who(self, params):
         """
@@ -1813,7 +1906,7 @@ class IRCClient(object):
         self.finish(response)
 
     @scripts
-    def handle_kick(self,params):
+    def handle_kick(self, params):
         """
         Implement the kick command
         """
@@ -1878,7 +1971,7 @@ class IRCClient(object):
         channel.clients.remove(target)
 
     @scripts
-    def handle_list(self,params):
+    def handle_list(self, params):
         """
         Implements the /list command
         """
@@ -1897,7 +1990,7 @@ class IRCClient(object):
         return(':%s %s %s :End of /LIST' % (SRV_DOMAIN, RPL_LISTEND, self.nick))
 
     @scripts
-    def handle_oper(self,params):
+    def handle_oper(self, params):
         """
         Handle the client authenticating itself as an ircop.
         """
@@ -1911,9 +2004,8 @@ class IRCClient(object):
                 
                 if password == OPER_PASSWORD and opername == OPER_USERNAME:
                     oper = self.server.opers.setdefault(self.nick, IRCOperator(self))
-                    self.modes['A'] = 1
-                    modeline = modeline + 'A'
-                
+                    self.modes['A'], self.modes["N"] = 1, 1
+                    modeline += 'AN'
                 else:
                     oper = self.server.opers.get(opername)
                     if (not oper) or (not oper.passwd) or (oper.passwd != password):
@@ -1935,7 +2027,7 @@ class IRCClient(object):
                 return(': Incorrect usage.')
 
     @scripts
-    def handle_operserv(self,params):
+    def handle_operserv(self, params):
         """
         Pass authenticated ircop commands to the IRCOperator dispatcher.
         """
@@ -1945,7 +2037,7 @@ class IRCClient(object):
             return(': OPERSERV is only available to authenticated IRCops.')
 
     @scripts
-    def handle_chghost(self,params):
+    def handle_chghost(self, params):
         if self.oper:
             target, vhost = params.split(' ',1)
             target = self.server.clients.get(target)
@@ -1960,7 +2052,7 @@ class IRCClient(object):
                 (SRV_DOMAIN, self.nick))
 
     @scripts
-    def handle_kill(self,params):
+    def handle_kill(self, params):
         nick, reason = params.split(' ', 1)
         reason = reason.lstrip(':')
         if self.oper:
@@ -2066,7 +2158,7 @@ class IRCClient(object):
                     self.broadcast(self.nick, message)
 
     @scripts
-    def handle_kline(self,params):
+    def handle_kline(self, params):
         """
         Syntax: /kline add host reason
                 /kline remove host
@@ -2213,18 +2305,19 @@ class IRCServer(object):
         self.servername     = SRV_DOMAIN
         self.loop           = EventLoop
         self.loop.server    = self
-        self.channels       = {}            # Existing channels (IRCChannel instances) by channel name
-        self.clients        = {}            # Connected clients (IRCClient instances) by nickname
-        self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname
+        self.channels       = {}            # Existing channels (IRCChannel instances) by channel name.
+        self.clients        = {}            # Connected clients (IRCClient instances) by nickname.
+        self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname.
         self.scripts        = Scripts(self) # The scripts object we attach external execution routines to.
         self.link_key       = None          # Oper-defined pass for accepting connections as server links.
-        self.links          = {}            # Other servers (IRCServerLink instances) by domain or address
+        self.links          = {}            # Other servers (IRCServerLink instances) by domain or address.
         self.lines          = {             # Bans we check on client connect, against...
-                               'K':{},      # A userhost, locally
-#                              'G':{},      # A userhost, network-wide
-                               'Z':{},      # An IP range, locally
-#                              'GZ':{}      # An IP range, network-wide 
+                               'K':{},      # A userhost, locally.
+                               'G':{},      # A userhost, network-wide.
+                               'Z':{},      # An IP range, locally.
+                               'GZ':{}      # An IP range, network-wide.
                               }             # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
+        self.link_key       = hashlib.new('sha512', str(os.urandom(128)).encode('utf-8')).hexdigest()
         self.sock.setblocking(0)
         # Avert "Address already in use" on restarts 
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -2238,6 +2331,41 @@ class IRCServer(object):
             sock, host = yield from self.loop.sock_accept(self.sock)
             client = IRCClient(self, sock, host)
 
+    def link_server(self, client, rhost, link_key):
+        if not "N" in client.modes:
+            client.write("You are not a Network Administrator.")
+            return
+        
+        if rhost in self.links:
+            client.write("The host %s constitutes an existing link." % rhost)
+            client.write("Re-linking requires you to OPERSERV SQUIT them, first.")
+
+        else:
+            link = IRCServerLink(self, rhost, link_key)
+            
+            if ':' in rhost:
+                rhost, rport = rhost.split(":")
+            else:
+                rport = 6667
+            
+            coro   = self.loop.create_connection(lambda: link, rhost, rport)
+            future = asyncio.async(coro)
+            
+            self.links[":".join((rhost, rport))] = (coro, future, link)
+            future.add_done_callback(link.finish)
+
+            if link.link_active:
+                client.broadcast("umode:W", ":%s NOTICE * :%s linked %s with %s." % \
+                    (SRV_DOMAIN, client.client_ident(True), SRV_DOMAIN, rhost))
+ 
+            else:
+                client.broadcast("umode:W", ":%s NOTICE * :%s tried to link %s with %s." % \
+                    (SRV_DOMAIN, client.client_ident(True), SRV_DOMAIN, rhost))
+                client.write("A link could not be established at this time.")
+
+    def unlink_server(self, client, rhost, *args):
+        pass
+
 class ForeignClient(IRCClient):
     """
     Foreign clients are structurally identical to the IRCClient class, with the
@@ -2245,83 +2373,51 @@ class ForeignClient(IRCClient):
     could be multiple links away. This includes emulating IRCClient.request in
     order to route messages to the correct node in the network.
     """
-    remote = True
-    def __init__(self, request, client_address, server):
-        """
-        This could entail emulation of socket file descriptors.
-        """
-        while True:
-            while self.send_queue:
-                msg = self.send_queue.pop(0)
-                logging.debug('to %s: %s' % (self.client_ident(), msg))
-                self.request.send(msg.encode('utf-8','ignore') + '\n')
 
-# How to reason about users who aren't connected:
-# RemoteClient.server = remote_hostname
-# IRCServer.links[remote_hostname] where each element has its own dictionary of links..
-
-class Shared(object):
-    """
-    This is a nifty shared-memory container for server links.
-    """
-    objects = {}
-    queue   = []
-
-class IRCServerLink(object):
+class IRCServerLink(asyncio.Protocol):
     """
     Represents a connection to a remote Psyrcd instance.
-    We start IRCServerLink.connect in a thread and can reasonably expect
-    self.shared to be a dictionary that was created by the main thread.
-    This permits inter-thread communication based on the actor model.
     """
-    socket = None
-    connected = False
-    shared = None
-    server = None
+    def __init__(self, local_server, rhost, link_key):
+        self.local_server = local_server
+        self.rhost        = rhost
+        self.link_key     = link_key
+        self.transport    = None
+        self.link_active  = False
 
-    def __init__(self, host, key):
-        self.host = host
-        self.key = key
-
-    def connect(self):
-        self.socket.connect(self.host)
-        self.send("LINK %s %s" % (SRV_DOMAIN, self.key))
-
-        while True:
-            self.receive()
-            buf = self.socket.recv(4096)
-            lines = buf.split("\n")
-            for data in lines:
-                data = str(data).strip()
-                if data == '':
-                    continue
-                print("I<", data)
-
-                # server ping/pong?
-                if data.find('PING') != -1:
-                    n = data.split(':')[1]
-                    self.send('PONG :' + n)
-                    if self.connected == False:
-                        self.perform()
-                        self.connected = True
-
-                args = data.split(None, 3)
-                if len(args) != 4:
-                    continue
-                ctx = {}
-                ctx['sender'] = args[0][1:]
-                ctx['type']   = args[1]
-                ctx['target'] = args[2]
-                ctx['msg']  = args[3][1:]
-
-    def receive(self, message=None):
+    def connection_made(self, transport):
         """
-        Receive commands from the local server, such as privmsg, whois etc.
+        Mark the link as active and negotiate as a server.
         """
-        if not message:
-            message = self.shared.inbox
-        func = getattr(self, "handle_" + message[0])
-        func(message[1])        
+        self.link_active = True
+        self.transport   = transport
+        logging.info("Connected to %s" % self.rhost)
+        self.write("SERVER %s %s %s %s\n" % \
+            (SRV_VERSION, SRV_DOMAIN, NET_NAME, self.link_key))
+
+    def data_received(self, data):
+        logging.info("<< %s: %s" % (self.rhost, data.decode("utf-8")))
+
+    def write(self, *params, msgprefix=""):
+        if not self.transport:
+            return
+
+        for message in map(str, params):
+            for line in message.splitlines():
+                logging.info(">> %s: %s" % (self.rhost, line))
+                self.transport.write(line.encode("utf-8"))
+
+    def connection_lost(self, exc):
+        logging.info("! %s" % str(exc))
+
+    def finish(self, arg):
+        print(arg)
+        logging.info("Connection to %s closed." % self.rhost)
+
+    def __repr__(self):
+        return "<%s IRCServerLink (%s <-> %s) at %s>" % \
+            ("Active" if self.link_active else "Inactive",
+            SRV_DOMAIN, self.rhost, hex(id(self)))
 
 class Script(object):
         def __init__(self, file=None, env={}):

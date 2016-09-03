@@ -1,5 +1,6 @@
+import pprint
 if 'init' in dir():
-    provides = "command:disect:Divulges information on channel and user objects."
+    provides = "command:disect:Displays information about channel and user objects."
 else:
     if not client.oper: client.broadcast(client.nick, ': IRCops Only.')
     else:
@@ -10,7 +11,7 @@ else:
                     message = 'Channel %s: %s\n' % (channel.name, repr(channel))
                     if channel.topic:
                         message += 'Topic: %s\n' % channel.topic
-                    message += 'Clients: %s\n' % str(channel.clients)
+                    message += 'Clients: %s\n' % pprint.pformat(channel.clients)
                     message += 'Supported modes:\n'
                     for m, d in channel.supported_modes.items():
                         message += "  %s    %s\n" % (m, d)
