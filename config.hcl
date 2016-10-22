@@ -1,6 +1,6 @@
 server {
     name           = "psyrcd-dev"
-    domain         = "azldev.lan"
+    domain         = "irc.psybernetics.org"
     description    = "I fought the lol, and. The lol won."
     welcome        = "Welcome to {}" // Formatted with server["name"].
     link_key       = "${PSYRCD_LINK_KEY}"
@@ -32,11 +32,5 @@ services {
     chanserv {
         enabled = false
         database_uri = "sqlite:////var/opt/psyrcd/chanserv.db"
-    }
-
-    // Microservice messagebus and key / value store.
-    cirro {
-        enabled = true
-        database_uri = "sqlite:////var/opt/psyrcd/cirro.db"
     }
 }
