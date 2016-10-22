@@ -55,15 +55,18 @@
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
 from concurrent.futures import ThreadPoolExecutor
-import sys, os, re, pwd, time, optparse, logging, hashlib, asyncio, socket, ssl, json
+import sys, os, re, pwd, time, argparse, importlib, logging, hashlib, asyncio, socket, ssl, json
 
 try:
     import uvloop # https://github.com/MagicStack/uvloop
 except ImportError:
     uvloop = None
 
+import hcl
+import pluginbase
+
+SRV_VERSION     = "psyrcd-2.0.0"
 NET_NAME        = "psyrcd-dev"
-SRV_VERSION     = "psyrcd-1.0.24"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
 SRV_WELCOME     = "Welcome to %s" % NET_NAME
@@ -135,7 +138,7 @@ class IRCError(Exception):
     Exception thrown by IRC command handlers to notify client of a server/client error.
     """
     def __init__(self, code, value):
-        self.code = code
+        self.code  = code
         self.value = value
 
     def __str__(self):
@@ -426,6 +429,95 @@ class IRCOperator(object):
         victim = self.client.server.clients.get(target)
         if victim: victim.handle_part(channel)
 
+class Line(object):
+    """
+    Line is for easily parsing the input lines that produce ScriptContexts.
+    """
+    def __init__(self, line):
+        self.body = line
+        self.time = time.time()
+
+    def split(self):
+        return self.body.split()
+
+    @property
+    def nick(self):
+        return None
+
+    @property
+    def host(self):
+        return None
+
+    @property
+    def channel(self):
+        return None
+
+    def __str__(self):
+        return self.body
+
+    def __repr__(self):
+        return "<Line \"%s\" at %s>" % (self.body, hex(id(self)))
+
+class ScriptContext(dict):
+    """
+    Load / Unload
+        {"init": bool, "server": IRCServer}
+
+    Commands:
+        {"client": client, "line": line}
+
+    Client modes:
+        {"client": client, "mode": mode,
+         "params": params, "func": func}
+
+    Channel modes:
+        {"client": client, "channel": channel, "line": line, "mode": mode,
+         "func": func}
+
+    The reason for using a class instead of the plain dictionaries that were
+    used previously is to automatically provide instances of Line when a lookup
+    is made for the value of "line" from within a script.
+
+    Given that setting the value for "line" automatically creates an instance
+    of Line, it should be possible to substitute for a plain Python string
+    when calling scripted commands, i.e.: command({"client": self, "line": line})
+    is equivalent to command(ctx).
+    """
+    def __init__(self, *args, **kwargs):
+        self.cancelled = False
+        
+        if "line" in kwargs:
+            kwargs["line"] = Line(kwargs["line"])
+       
+        dict.__init__(self, *args, **kwargs)
+
+    def write(self, *args, msgprefix=":%s NOTICE" % SRV_DOMAIN):
+        response = msgprefix
+        for idx, word in enumerate(args):
+            if not idx:
+                response += " " + word + " :"
+                continue
+            response += word + " "
+        return response
+
+    @property
+    def cancel(self):
+        return "cancel" in self and self["cancel"]
+
+    @cancel.setter
+    def cancel(self, value):
+        self["cancel"] = value
+
+    def __getattr__(self, attr):
+        if not attr.startswith("_") and attr in self:
+            return self[attr]
+        raise AttributeError
+
+    def __setattr__(self, key, value):
+        if key == "line":
+            value = Line(value)
+        super(ScriptContext, self).__setattr__(key, value) 
+
 def scripts(func):
     def wrapper(self, *args, **kwargs):
 
@@ -434,18 +526,22 @@ def scripts(func):
         if not self.user: return(func(self, *args))
 
         s = self.server.scripts
+        p = self.server.plugins
 
+        ctx = ScriptContext({'client': self, 'func': func})
+
+        params = ctx["params"] = str(args[0]) if args else str()
+        
+        # Practically all client connection messages run through here.
         for mode in self.modes.copy():
-            params=''
-            if args:
-                params = str(args[0])
+            # This lets external components know why they're being invoked.
+            ctx["mode"] = mode
+            
+            # Check for matching scripts.
             if mode in s.umodes:
                 script = s.umodes[mode][0]
                 try:
-                    script.execute({'client': self,
-                                    'params': params,
-                                    'mode':   mode,
-                                    'func':   func})
+                    script.execute(ctx)
                     if 'cancel' in script.env:
                         return
                     if 'params' in script.env:
@@ -454,6 +550,20 @@ def scripts(func):
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
                         (SRV_DOMAIN,self.client_ident(), err, script.file))
+            
+            # Check for matching plugins.
+            if mode in p.umodes:
+                plugin = p.umodes[mode]
+                try:
+                    plugin(ctx)
+                    if ctx.cancel:
+                        return
+                    if "params" in ctx:
+                        args = (ctx["params"],)
+                except Exception as err:
+                    logging.error('%s in %s' % (err, plugin))
+                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
+                        (SRV_DOMAIN, self.client_ident(), err, plugin))
 
         if params.startswith('#'):
             if ' ' in params:
@@ -462,18 +572,21 @@ def scripts(func):
                 channel = self.server.channels.get(params)
             if channel:
                 for mode in channel.modes.copy():
-                    params = ''
+                    params = str()
                     if args:
                         params = str(args[0])
                     
                     if mode in s.cmodes:
                         script = s.cmodes[mode][0]
+                        
+                        ctx = ScriptContext({'client':  self,
+                                             'channel': channel,
+                                             'line':    params,
+                                             'mode':    mode,
+                                             'func':    func})
+                        
                         try:
-                            script.execute({'client':  self,
-                                            'channel': channel,
-                                            'params':  params,
-                                            'mode':    mode,
-                                            'func':    func})
+                            script.execute(ctx)
                             
                             if 'cancel' in s.env:
                                 if isinstance(script['cancel'], (str, bytes)):
@@ -482,7 +595,6 @@ def scripts(func):
                                     return('')
                             if 'params' in script.env:
                                 args = (script['params'],)
-                        
                         except Exception as err:
                             logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
@@ -627,7 +739,7 @@ class IRCClient(object):
 
     def handle(self, buf):
         """
-        The nucleus of the IRCd.
+        The nucleus of the IRCD.
         """
         # Receive from the client and turn the data into line-oriented
         # output.
@@ -653,12 +765,34 @@ class IRCClient(object):
                 # and calls its __call__ method, allowing scripts to replace
                 # built-in commands.
                 script = self.server.scripts.commands.get(command.lower())
+                plugin = self.server.plugins.commands.get(command.lower())
                 if script:
+                    # "handler" has to be defined or we'll assume the command
+                    # wasn't found, later.
                     handler = script[0]
-                    response = handler(self, command, params)
+                    try:
+                        response = handler(self, command, params)
+                    except Exception as e:
+                        logging.error(e)
+                        response = None
+                elif plugin:
+                    if "read_on_exec" in plugin and plugin["read_on_exec"]:
+                        self.server.plugins.load(plugin.module_name)
+                        plugin = self.server.plugins.commands.get(command.lower())
+                    handler = plugin
+                    ctx = ScriptContext(
+                        cache=plugin["cache"],
+                        client=self,
+                        line=" ".join((command, params)),
+                    )
+                    response = handler(ctx)
+                    if not response:
+                        response = str()
                 else:
                     handler = getattr(self, 'handle_%s' % (command.lower()), None)
-                    if handler: response = handler(params)
+                    if handler:
+                        response = handler(params)
+                
                 if not handler:
                     logging.info('No handler for command: %s. Full line: %s' % (command, line))
                     raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
@@ -678,7 +812,7 @@ class IRCClient(object):
                 self.broadcast('umode:W', response)
                 self.broadcast(self.nick, response)
                 logging.error(err)
-            
+
             if response:
                 logging.debug('to %s: %s' % (self.client_ident(), response))
                 self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
@@ -738,7 +872,11 @@ class IRCClient(object):
         else:
             client = self.server.clients.get(target)
             if client:
-                client.request.send(message)
+                try:
+                    client.request.send(message)
+                except IOError:
+                    client.finish()
+            
 
     def write(self, *params, msgprefix=":%s NOTICE " % SRV_DOMAIN):
         """
@@ -956,7 +1094,7 @@ class IRCClient(object):
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s while connecting.' % \
                     (SRV_DOMAIN,self.client_ident(), err, script.file))
-            return('')
+            return ""
 
     @links
     @scripts
@@ -1002,7 +1140,15 @@ class IRCClient(object):
             self.finish()
 
         return ": ACCEPTED"
-    
+   
+    @links
+    @scripts
+    def handle_cap(self, params):
+        """
+        Acquire the list of IRCv3 capabilities from the server.
+        """
+        return(":%s UNIMPLEMENTED" % self.server.servername)
+
     @links
     @scripts
     def handle_lusers(self, params):
@@ -1318,12 +1464,12 @@ class IRCClient(object):
                                 
                                 script = self.server.scripts.cmodes[mode][0]
                                 try:
-                                    script.execute({'client':           self,
-                                                    'channel':          channel,
-                                                    'mode':             mode,
-                                                    'args':             args,
-                                                    'setting_mode':     False})
-                                    if 'cancel' in script.env:
+                                    script.execute({"client":           self,
+                                                    "channel":          channel,
+                                                    "mode":             mode,
+                                                    "args":             args,
+                                                    "setting_mode":     False})
+                                    if "cancel" in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
@@ -1698,79 +1844,93 @@ class IRCClient(object):
         self.last_activity = str(time.time())[:10] 
         # TODO: IP Addr, Admin, Oper, Bot lines.
         user = self.server.clients.get(params)
-        if user:
-            # Userhost line.
-            if user.vhost:
-                response = ':%s %s %s %s %s %s * %s' % \
-                    (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
-                    user.nick, user.vhost, user.realname)
-                self.broadcast(self.nick,response)
-            else:
-                response = ':%s %s %s %s %s %s * %s' % \
-                    (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
-                    user.nick, user.hostmask, user.realname)
-                self.broadcast(self.nick,response)
-
-            # Channels the user is in. Modify to show op status.
-            channels = []
-            for channel in user.channels.values():
-                if 'p' not in channel.modes:
-                    channels.append(channel.name)
-            if channels:
-                response = ':%s %s %s %s :%s' % \
-                    (SRV_DOMAIN, RPL_WHOISCHANNELS, self.nick, user.nick,
-                    ' '.join(channels))
-                self.broadcast(self.nick, response)
-
-            # Oper info
-            if user.oper and 'H' not in user.modes:
-                if 'A' in user.modes:
-                    response = ':%s %s %s %s :%s is a server admin.' % \
-                        (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
-                            user.nick)
-                    self.broadcast(self.nick, response)
-                if 'O' in user.modes:
-                    response = ':%s %s %s %s :%s is a server operator.' % \
-                        (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
-                            user.nick)
-                    self.broadcast(self.nick, response)
-
-            if self.oper or self.nick == user.nick:
-                if user.rhost:
-                    response = ':%s %s %s %s %s %s' % \
-                        (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
-                        user.rhost, user.host[0])
-                    self.broadcast(self.nick, response)
-                else:
-                    response = ':%s %s %s %s %s' % \
-                        (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
-                            user.host[0])
-                    self.broadcast(self.nick, response)
-
-            # Server info line
-            response = ':%s %s %s %s %s :%s' % \
-                (SRV_DOMAIN, RPL_WHOISSERVER, self.nick, user.nick,
-                    SRV_DOMAIN, SRV_DESCRIPTION)
-            self.broadcast(self.nick, response)
-
-            if 'Z' in user.modes:
-                response = ':%s %s %s %s :is using a secure connnection' % \
-                    (SRV_DOMAIN, RPL_WHOISSECURE, self.nick, user.nick)
-                self.broadcast(self.nick, response)
-
-            # Idle and connection time.
-            idle_time = int(str(time.time())[:10]) - int(user.last_activity)
-            response = ':%s %s %s %s %i %s :seconds idle, signon time' % \
-                (SRV_DOMAIN, RPL_WHOISIDLE, self.nick, user.nick, idle_time,
-                    user.connected_at)
-            self.broadcast(self.nick, response)
-
-            # That about wraps 'er up.
-            response = ':%s %s %s %s :End of /WHOIS list.' % (SRV_DOMAIN,
-                RPL_ENDOFWHOIS, self.nick, user.nick)
-        else:
+        if not user:
             raise IRCError(ERR_UNKNOWNCOMMAND, '%s is a cool guy.' % \
                 params.split(' ', 1)[0])
+        
+        # Userhost line.
+        if user.vhost:
+            response = ':%s %s %s %s %s %s * %s' % \
+                (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
+                user.nick, user.vhost, user.realname)
+            self.broadcast(self.nick,response)
+        else:
+            response = ':%s %s %s %s %s %s * %s' % \
+                (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
+                user.nick, user.hostmask, user.realname)
+            self.broadcast(self.nick,response)
+
+        # Channels the user is in. Modify to show op status.
+        channels = []
+        for channel in user.channels.values():
+            if 'p' not in channel.modes:
+                channels.append(channel.name)
+        if channels:
+            response = ':%s %s %s %s :%s' % \
+                (SRV_DOMAIN, RPL_WHOISCHANNELS, self.nick, user.nick,
+                ' '.join(channels))
+            self.broadcast(self.nick, response)
+
+        # Oper info
+        if user.oper and 'H' not in user.modes:
+            if 'A' in user.modes:
+                response = ':%s %s %s %s :%s is a server admin.' % \
+                    (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
+                        user.nick)
+                self.broadcast(self.nick, response)
+            if 'O' in user.modes:
+                response = ':%s %s %s %s :%s is a server operator.' % \
+                    (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
+                        user.nick)
+                self.broadcast(self.nick, response)
+
+        if self.oper or self.nick == user.nick:
+            if user.rhost:
+                response = ':%s %s %s %s %s %s' % \
+                    (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                    user.rhost, user.host[0])
+                self.broadcast(self.nick, response)
+            else:
+                response = ':%s %s %s %s %s' % \
+                    (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                        user.host[0])
+                self.broadcast(self.nick, response)
+
+        # Script / Plugin user modes
+        for mode in user.modes:
+            if hasattr(user.modes[mode], "__whois__"):
+                try:
+                    
+                    for line in user.modes[mode].__whois__.splitlines():
+                        response = ':%s %s %s %s +%s: %s' % \
+                            (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                            mode, line)
+                        self.broadcast(self.nick, response)
+                except Exception as err:
+                    logging.error("Error parsing __whois__ attribute for user mode \"%s\"." % mode)
+                    logging.error(str(err))
+
+        # Server info line
+        response = ':%s %s %s %s %s :%s' % \
+            (SRV_DOMAIN, RPL_WHOISSERVER, self.nick, user.nick,
+                SRV_DOMAIN, SRV_DESCRIPTION)
+        self.broadcast(self.nick, response)
+
+        if 'Z' in user.modes:
+            response = ':%s %s %s %s :is using a secure connnection' % \
+                (SRV_DOMAIN, RPL_WHOISSECURE, self.nick, user.nick)
+            self.broadcast(self.nick, response)
+
+        # Idle and connection time.
+        idle_time = int(str(time.time())[:10]) - int(user.last_activity)
+        response = ':%s %s %s %s %i %s :seconds idle, signon time' % \
+            (SRV_DOMAIN, RPL_WHOISIDLE, self.nick, user.nick, idle_time,
+                user.connected_at)
+        self.broadcast(self.nick, response)
+
+        # That about wraps 'er up.
+        response = ':%s %s %s %s :End of /WHOIS list.' % (SRV_DOMAIN,
+            RPL_ENDOFWHOIS, self.nick, user.nick)
 
     @links
     @scripts
@@ -2300,7 +2460,7 @@ class IRCClient(object):
         )
 
 class IRCServer(object):
-    def __init__(self, EventLoop, server_address):
+    def __init__(self, EventLoop, server_address, plugin_paths=[], read_on_exec=False):
         self.sock           = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.servername     = SRV_DOMAIN
         self.loop           = EventLoop
@@ -2309,6 +2469,12 @@ class IRCServer(object):
         self.clients        = {}            # Connected clients (IRCClient instances) by nickname.
         self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname.
         self.scripts        = Scripts(self) # The scripts object we attach external execution routines to.
+        self.plugins        = Plugins(
+                                        self,
+                                        pluginbase.PluginBase("plugins"),
+                                        searchpath=plugin_paths,
+                                        read_on_exec=read_on_exec,
+                                    )
         self.link_key       = None          # Oper-defined pass for accepting connections as server links.
         self.links          = {}            # Other servers (IRCServerLink instances) by domain or address.
         self.lines          = {             # Bans we check on client connect, against...
@@ -2332,6 +2498,13 @@ class IRCServer(object):
             client = IRCClient(self, sock, host)
 
     def link_server(self, client, rhost, link_key):
+        """
+        TODO ----------------------------------------------------------------
+        Initiate a connection to a remote Psyrcd instance, identify ourselves
+        as a server and synchronise state.
+        TODO ----------------------------------------------------------------
+        """
+        return
         if not "N" in client.modes:
             client.write("You are not a Network Administrator.")
             return
@@ -2366,9 +2539,36 @@ class IRCServer(object):
     def unlink_server(self, client, rhost, *args):
         pass
 
+    def repl(self, repl_locals={}, sysexit=0):
+        """
+        Spawn a debugging REPL.
+        Requires Ptpython. Doesn't work if you'ved piped in an oper password.
+        """
+        try:
+            from ptpython.repl import embed
+        except ImportError:
+            sys.stderr.write("Error: The --repl flag requires the ptpython library.\n")
+            sys.stderr.write("This can be installed on most systems with \"sudo pip3 install ptpython\".")
+            sys.exit(1)
+        if not sys.stdin.isatty():
+            print("Error: stdin isn't a tty.")
+            sys.exit(1)
+        def configure_repl(repl):
+            repl.prompt_style                   = "ipython"
+            repl.vi_mode                        = True
+            repl.confirm_exit                   = False
+            repl.show_status_bar                = False
+            repl.show_line_numbers              = True
+            repl.show_sidebar_help              = False
+            repl.highlight_matching_parenthesis = True
+            repl.use_code_colorscheme("igor")
+        embed(locals=repl_locals, configure=configure_repl)
+        if sysexit:
+            sys.exit(0)
+
 class ForeignClient(IRCClient):
     """
-    Foreign clients are structurally identical to the IRCClient class, with the
+    Foreign clients are structurally identical to the IRCClient class with the
     exception that they're known to us through a remote Psyrcd instance that
     could be multiple links away. This includes emulating IRCClient.request in
     order to route messages to the correct node in the network.
@@ -2420,69 +2620,221 @@ class IRCServerLink(asyncio.Protocol):
             SRV_DOMAIN, self.rhost, hex(id(self)))
 
 class Script(object):
-        def __init__(self, file=None, env={}):
-                self.read_on_exec = options.debug
-                self.file   = file
-                self.env    = env
-                self.script = ''
-                self.code   = None
-                self.hash   = None
-                self.cache  = {
-                        'config':{'options':         options,
-                                  'logging':         logging,
-                                  'NET_NAME':        NET_NAME,
-                                  'SRV_VERSION':     SRV_VERSION,
-                                  'SRV_DOMAIN':      SRV_DOMAIN,
-                                  'SRV_DESCRIPTION': SRV_DESCRIPTION,
-                                  'SRV_WELCOME':     SRV_WELCOME,
-                                  'MAX_NICKLEN':     MAX_NICKLEN,
-                                  'MAX_CHANNELS':    MAX_CHANNELS,
-                                  'MAX_TOPICLEN':    MAX_TOPICLEN,
-                                  'SRV_CREATED':     SRV_CREATED,
-                                  'MAX_CLIENTS':     MAX_CLIENTS,
-                                  'MAX_IDLE':        MAX_IDLE
-                                 }
-                              }
+    def __init__(self, file=None, env={}):
+        self.read_on_exec = options.debug
+        self.file   = file
+        self.env    = env
+        self.script = ''
+        self.code   = None
+        self.hash   = None
+        self.cache  = {
+            'config':{'options':         options,
+                      'logging':         logging,
+                      'NET_NAME':        NET_NAME,
+                      'SRV_VERSION':     SRV_VERSION,
+                      'SRV_DOMAIN':      SRV_DOMAIN,
+                      'SRV_DESCRIPTION': SRV_DESCRIPTION,
+                      'SRV_WELCOME':     SRV_WELCOME,
+                      'MAX_NICKLEN':     MAX_NICKLEN,
+                      'MAX_CHANNELS':    MAX_CHANNELS,
+                      'MAX_TOPICLEN':    MAX_TOPICLEN,
+                      'SRV_CREATED':     SRV_CREATED,
+                      'MAX_CLIENTS':     MAX_CLIENTS,
+                      'MAX_IDLE':        MAX_IDLE
+                     }
+                  }
 
-        def execute(self,env={}):
-                if not self.code or self.read_on_exec: self.compile()
-                if env: self.env = env
-                self.env['cache'] = self.cache
-                exec(self.code,  self.env)
-                del self.env['__builtins__']
-                if 'cache' in self.env.keys():
-                    self.cache = self.env['cache']
-                return(self.env)
+    def execute(self,env={}):
+            if not self.code or self.read_on_exec:
+                self.compile()
+            if env:
+                self.env = env
+            self.env['cache'] = self.cache
+            exec(self.code,  self.env)
+            del self.env['__builtins__']
+            if 'cache' in self.env.keys():
+                self.cache = self.env['cache']
+            return(self.env)
 
-        def compile(self,script=''):
-                if self.file:
-                        f = open(self.file, 'r')
-                        self.script = f.read()
-                        f.close()
-                elif script: self.script=script
-                if self.script:
-                        hash = sha1sum(self.script)
-                        if self.hash != hash:
-                                self.hash = hash
-                                self.code = compile(self.script, '<string>', 'exec')
-                        self.script = ''
+    def compile(self,script=''):
+            if self.file:
+                    f = open(self.file, 'r')
+                    self.script = f.read()
+                    f.close()
+            elif script: self.script=script
+            if self.script:
+                    hash = sha1sum(self.script)
+                    if self.hash != hash:
+                            self.hash = hash
+                            self.code = compile(self.script, '<string>', 'exec')
+                    self.script = ''
 
-        def __getitem__(self, key):
-                if key in self.env.keys():
-                        return self.env[key]
-                else:
-                        raise(KeyError(key))
+    def __getitem__(self, key):
+            if key in self.env.keys():
+                    return self.env[key]
+            else:
+                    raise(KeyError(key))
 
-        def __call__(self, client, command, params):
-            try:
-                self.execute({'params':params,'command':command,'client':client})
-                if 'output' in self.env.keys(): return(self['output'])
-            except Exception as err:
-                logging.error('%s in %s' % (err,self.file))
-                client.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                    (SRV_DOMAIN,client.client_ident(), err, self.file))
-                client.broadcast(client.nick, ':%s NOTICE %s :%s is temporarily out of order.' % \
-                    (SRV_DOMAIN, client.nick, command.upper()))
+#        def __call__(self, client, command, params):
+    def __call__(self, client, command, params):
+        try:
+            self.execute({'params':params,'command':command,'client':client})
+            #self.execute(ctx)
+            if 'output' in self.env.keys():
+                return(self['output'])
+        except Exception as err:
+            logging.error('%s in %s' % (err,self.file))
+            client.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
+                (SRV_DOMAIN,client.client_ident(), err, self.file))
+            client.broadcast(client.nick, ':%s NOTICE %s :%s is temporarily out of order.' % \
+                (SRV_DOMAIN, client.nick, command.upper()))
+
+class Plugin(dict):
+    def __init__(self, module, **kwargs):
+        self["cache"]  = {}
+        self["module"] = module
+        
+        # Keep a record of this modules' SHA1
+        with open(module.__file__, "r") as f:
+            self["hash"] = sha1sum(f.read())
+
+        dict.__init__(self, **kwargs)
+
+    @property
+    def module_name(self):
+        return self["module"].__name__.split(".")[-1]
+
+    def get_hash(self):
+        with open(self["module"].__file__, "r") as f:
+            return sha1sum(f.read())
+    
+    def __name__(self):
+        if "callable" in self and hasattr(self["callable"], "__name__"):
+            return self["callable"].__name__
+        return None
+    
+    def __call__(self, ctx, *args, **kwargs):
+        #
+        # If you're wondering how read_on_exec works for Plugins it's in
+        # IRCServer.handle and the scripts decorator, just before this
+        # method is invoked.
+        #
+        if not "callable" in self:
+            raise Exception("No callable loaded in %s" % repr(self))
+
+        return self["callable"](ctx, *args, **kwargs)
+
+    def __repr__(self):
+        return "<Plugin %s:%s at %s>" % \
+            (self["type"], self["name"], hex(id(self)))
+
+class Plugins(pluginbase.PluginSource):
+    """
+    Plugins available at self.mod. I.e. self.load("foo") loads foo onto self.mod.foo.
+
+    """
+    def __init__(self, server, base, identifier=None, searchpath=None,
+                 read_on_exec=False, persist=True):
+        self.commands     = {}
+        self.cmodes       = {}
+        self.umodes       = {}
+        self.server       = server
+        self.read_on_exec = read_on_exec
+        self.list_available_plugins = self.list_plugins
+        pluginbase.PluginSource.__init__(self, base, identifier, searchpath, persist)
+
+    def load(self, plugin_name: str, config={}, reload=True) -> bool:
+        """
+
+        """
+        if reload and plugin_name in dir(self.mod):
+            module = getattr(self.mod, plugin_name)
+            importlib.reload(module)
+        else:
+            module = self.load_plugin(plugin_name)
+
+        if not hasattr(module, "__package__"):
+            raise Exception("Missing __package__ attribute in plugin %s." % plugin_name)
+        
+        # Plugins may also have callables named __init__ and __del__ that we
+        # send a ScriptContext containing a reference to the IRCServer into.
+        # This permits Plugins to manage the entire lifecycle of their state.
+        if callable(getattr(module, "__init__", None)):
+            module.__init__(
+                ScriptContext(config=config, server=self.server),
+            )
+
+        def _load(module, pkginfo):
+            """
+            Obtain package info. Equivalent to returning a provides line from a
+            script except plugins are expected to store this information in the
+            top-level __package__ variable.
+            
+            The structure is one of
+            
+              __package__ = {"name": "foo", "type": "umode",
+                             "description": "desc", "callable": callable}
+            or
+              __package__ = [{"name": "foo",
+                              "type": "umode",
+                              "description": "desc",
+                              "callable": callable},
+                              ...]
+            
+            """
+            dictionary = getattr(self, pkginfo["type"] + "s")
+
+            if not reload and pkginfo["name"] in dictionary:
+                raise Exception("Plugin %s overlaps with an already loaded plugin (%s %s)." % \
+                    (plugin_name, pkginfo["type"], pkginfo["name"]))
+                
+            plugin = Plugin(module, **pkginfo)
+            plugin["read_on_exec"] = self.read_on_exec
+
+            name = pkginfo["name"]
+            if name in dictionary:
+                item = dictionary[name]
+                print(item["hash"])
+
+            dictionary[pkginfo["name"]] = plugin
+            logging.info("Loaded (plugin) %s %s (%s)." % \
+                (plugin["type"], plugin["name"], plugin["description"]))
+        
+        if isinstance(module.__package__, dict):
+            _load(module, pkginfo)
+
+        elif isinstance(module.__package__, (list, tuple, set)):
+            for pkginfo in module.__package__:
+                _load(module, pkginfo)
+
+    def unload(self, plugin: str) -> bool:
+        # Plugins may also have callables named __init__ and __del__ that we
+        # send a ScriptContext containing a reference to the IRCServer into.
+        # This permits Plugins to manage the entire lifecycle of their state.
+        if callable(getattr(plugin, "__del__", None)):
+            plugin.__del__(
+                ScriptContext(server=self.server),
+            )
+            return True
+        return False
+
+    def init(self, config: dict) -> bool:
+        for plugin_name in self.list_plugins():
+            self.load(plugin_name, config=config)
+
+    def exit(self):
+        for plugin_name in self.list_plugins():
+            self.unload(plugin_name)
+
+    @property
+    def as_table(self):
+        """
+        print(client.server.plugins.as_table, file=client)
+        """
+        pass
+
+    def __repr__(self):
+        return "<Plugins at %s>" % hex(id(self))
 
 class Scripts(object):
     def __init__(self, server=None):
@@ -2518,11 +2870,13 @@ class Scripts(object):
                 for i in d[1].split(','):
                     if i in self.commands.keys():
                         err = "%s appears to already be loaded." % i
-                    else:self.commands[i] = [s,description]
-                    if client: client.broadcast(client.nick,
-                        ':%s NOTICE %s :Loaded %s %s (%s)' % \
-                        (SRV_DOMAIN, client.nick, d[0], i, description))
-                    logging.info('Loaded %s %s (%s)' % (d[0], i, description))
+                    else:
+                        self.commands[i] = [s, description]
+                    if client:
+                        client.broadcast(client.nick,
+                        	':%s NOTICE %s :Loaded %s %s (%s)' % \
+                        	(SRV_DOMAIN, client.nick, d[0], i, description))
+                    logging.info('Loaded (script) %s %s (%s)' % (d[0], i, description))
             
             elif d[0] == 'cmode':
                 for i in d[1].split(','):
@@ -2536,7 +2890,7 @@ class Scripts(object):
                     if client: client.broadcast(client.nick,
                         ':%s NOTICE %s :Loaded %s %s (%s)' % \
                         (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded %s %s (%s)' % (d[0], i, description))
+                    logging.info('Loaded (script) %s %s (%s)' % (d[0], i, description))
             
             elif d[0] == 'umode':
                 for i in d[1].split(','):
@@ -2549,7 +2903,7 @@ class Scripts(object):
                                 user.supported_modes[i] = description
                     if client: client.broadcast(client.nick, ':%s NOTICE %s :Loaded %s %s (%s)' % \
                         (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded %s %s (%s)' % (d[0],i, description))
+                    logging.info('Loaded (script) %s %s (%s)' % (d[0],i, description))
             else:
                 err = "%s doesn't provide anything I can recognize." % (self.dir+script)
                 if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
@@ -2568,6 +2922,7 @@ class Scripts(object):
             d = item.split(':')
             if len(d) > 2:
                 description = d[2]
+            
             if d[0] == 'command':
                 for i in d[1].split(','):
                     if i in self.commands:
@@ -2576,6 +2931,7 @@ class Scripts(object):
                         if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
                             (SRV_DOMAIN, client.nick, err))
                         logging.info(err)
+            
             elif d[0] == 'cmode':
                 for i in d[1].split(','):
                     if i in self.cmodes:
@@ -2593,6 +2949,7 @@ class Scripts(object):
                         if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
                             (SRV_DOMAIN, client.nick, err))
                         logging.info(err)
+
             elif d[0] == 'umode':
                 for i in d[1].split(','):
                     if i in self.umodes:
@@ -2659,7 +3016,7 @@ def ping_routine(EventLoop):
     This routine is to remove connections that are either unresponsive or
     not playing this game.
     """
-    for client in EventLoop.server.clients.values():
+    for client in EventLoop.server.clients.copy().values():
         then = int(client.last_activity)
         now = int(str(time.time())[:10])
         if (now - then) > MAX_IDLE:
@@ -2667,6 +3024,66 @@ def ping_routine(EventLoop):
                 (client.client_ident(True), now - then))
 
     EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
+
+def apply_config(config, options) -> bool:
+    """
+    Also worth remembering that the logging module is available globally if
+    you'd like to handle that from the configuration file.
+    
+    There's also nothing stopping you from applying multiple configs.
+    """
+    if "oper" in config:
+        oper_block = config["oper"]
+        # NOTE(ljb): Should be a list of username / password_hash tuples.
+        if "username" in oper_block:
+            global OPER_USERNAME
+            if oper_block["username"] == True:
+                OPER_USERNAME = os.getenv("USER")
+            else:
+                OPER_USERNAME = oper_block["username"]
+
+        if "password" in oper_block:
+            global OPER_PASSWORD
+            OPER_PASSWORD = oper_block["password"]
+
+    if "server" in config:
+        server_block = config["server"]
+        if "name" in server_block:
+            global SRV_NAME
+            SRV_NAME = server_block["name"]
+        if "domain" in server_block:
+            global SRV_DOMAIN
+            SRV_DOMAIN = server_block["domain"]
+        if "description" in server_block:
+            global SRV_DESCRIPTION
+            SRV_DESCRIPTION = server_block["description"]
+        if "welcome" in server_block:
+            global SRV_WELCOME
+            SRV_WELCOME = server_block["welcome"].format(SRV_NAME)
+
+        if "ping_frequency" in server_block:
+            global PING_FREQUENCY
+            PING_FREQUENCY = server_block["ping_frequency"]
+
+        if "max" in server_block:
+            max_block = server_block["max"]
+            if "channels" in max_block:
+                global MAX_CHANNELS
+                MAX_CHANNELS = max_block["channels"]
+            if "clients" in max_block:
+                global MAX_CLIENTS
+                MAX_CLIENTS = max_block["clients"]
+            if "idle_time" in max_block:
+                global MAX_IDLE
+                MAX_IDLE = max_block["idle_time"]
+            if "nicklen" in max_block:
+                global MAX_NICKLEN
+                MAX_NICKLEN = max_block["nicklen"]
+            if "topiclen" in max_block:
+                global MAX_TOPICLEN
+                MAX_TOPICLEN = max_block["topiclen"]
+
+    return True
 
 def sha1sum(data): return(hashlib.sha1(data.encode('utf-8')).hexdigest())
 
@@ -2809,50 +3226,56 @@ if __name__ == "__main__":
     epilog = "Using the %s-k%s and %s-c%s options together enables SSL and plaintext connections over the same port." % \
         (color.blue,color.end,color.blue,color.end)
 
-    parser = optparse.OptionParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
-    parser.set_usage(sys.argv[0] + " -f --preload --debug")
-
-    parser.add_option("--start",            dest="start", action="store_true",
+    #parser = argparse.ArgumentParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
+    parser = argparse.ArgumentParser(prog=prog, description=description, epilog=epilog, usage=argparse.SUPPRESS)
+#    parser.set_usage(sys.argv[0] + " -f --preload --debug")
+    parser.add_argument('--version', action='version', version=SRV_VERSION)
+    parser.add_argument("--start",            dest="start", action="store_true",
         default=True, help="(default)")
-    parser.add_option("--stop",             dest="stop", action="store_true",
+    parser.add_argument("--stop",             dest="stop", action="store_true",
         default=False)
-    parser.add_option("--restart",          dest="restart", action="store_true",
+    parser.add_argument("--restart",          dest="restart", action="store_true",
         default=False)
-    parser.add_option("--pidfile",          dest="pidfile", action="store",
+    parser.add_argument("--pidfile",          dest="pidfile", action="store",
         default='psyrcd.pid')
-    parser.add_option("--logfile",          dest="logfile", action="store",
+    parser.add_argument("--logfile",          dest="logfile", action="store",
         default=None)
-    parser.add_option("-a", "--address",    dest="listen_address",
+    parser.add_argument("-a", "--address",    dest="listen_address",
         action="store", default='0.0.0.0')
-    parser.add_option("-p", "--port",       dest="listen_port", action="store",
+    parser.add_argument("-p", "--port",       dest="listen_port", action="store",
         default='6667')
-    parser.add_option("--disable-logging",  dest="disable_logging",
+    parser.add_argument("--disable-logging",  dest="disable_logging",
         action="store_true", default=False)
-    parser.add_option("-f", "--foreground", dest="foreground",
+    parser.add_argument("-f", "--foreground", dest="foreground",
         action="store_true")
-    parser.add_option("--run-as",           dest="run_as", action="store",
+    parser.add_argument("--config",           dest="config", action="store_true", 
+        default="config.hcl", help="(defaults to \"config.hcl\")")
+    parser.add_argument("--run-as",           dest="run_as", action="store",
         default=None, help="(defaults to the invoking user)")
-    parser.add_option("--scripts-dir",      dest="scripts_dir",action="store",
-        default='scripts', help="(defaults to ./scripts/)")
-    parser.add_option("--preload",          dest="preload",
+    parser.add_argument("--scripts-dir",      dest="scripts_dir",action="append",
+        default=['scripts'], help="(defaults to ./scripts/)")
+    parser.add_argument("--plugin-paths",     dest="plugin_paths",action="append",
+        default=['plugins'], help="(defaults to ./plugins/)")
+    parser.add_argument("--preload",          dest="preload",
         action="store_true", default=False,
         help="Preload all available scripts.")
-    parser.add_option("--debug",            dest="debug", action="store_true",
+    parser.add_argument("--debug",            dest="debug", action="store_true",
         default=False, help="Sets read_on_exec to True for live development.")
-    parser.add_option("-k", "--key",        dest="ssl_key",action="store",
+    parser.add_argument("-k", "--key",        dest="ssl_key",action="store",
         default=None)
-    parser.add_option("-c", "--cert",       dest="ssl_cert",action="store",
+    parser.add_argument("-c", "--cert",       dest="ssl_cert",action="store",
         default=None)
-    parser.add_option("--ssl-help",         dest="ssl_help",action="store_true",
+    parser.add_argument("--ssl-help",         dest="ssl_help",action="store_true",
         default=False)
 #    parser.add_option("--link-help",       dest="link_help",action="store_true",default=False)
-    (options, args) = parser.parse_args()
+    options = parser.parse_args()
 
     if options.ssl_help:
         print("""Keys and certs can be generated with:
 $ %sopenssl%s genrsa 4096 >%s key%s
 $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s""" % \
-(color.blue,color.end,color.orange,color.end,color.blue,color.end,color.orange,color.end,color.orange,color.end))
+    (color.blue, color.end, color.orange, color.end, color.blue, color.end,
+    color.orange, color.end, color.orange, color.end))
         raise SystemExit
 
     if options.disable_logging:
@@ -2908,6 +3331,12 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         logging.info("Please use --run-as")
         raise SystemExit
 
+    # Read and apply the configuration file.
+    with open(options.config, "r") as fd:
+        config = hcl.load(fd)
+
+    apply_config(config, options)
+
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))\
                             .encode('utf-8')).hexdigest()[:20]
@@ -2945,30 +3374,45 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         logging.info("Logging to %s" % (logfile))
 
     # Set variables for processing script files:
-    this_dir = os.path.abspath(os.path.curdir) + os.path.sep
-    scripts_dir = this_dir + options.scripts_dir + os.path.sep
-    if os.path.isdir(scripts_dir):
-        logging.info("Scripts directory: %s" % scripts_dir)
-    else: scripts_dir = False
+    for scripts_dir in options.scripts_dir:
+        this_dir = os.path.abspath(os.path.curdir) + os.path.sep
+        scripts_dir = this_dir + scripts_dir + os.path.sep
+        if os.path.isdir(scripts_dir):
+            logging.info("Scripts directory: %s" % scripts_dir)
+        else:
+            scripts_dir = False
 
-    # Start
+    # Ready a server instance.
     if uvloop != None:
         asyncio.set_event_loop(uvloop.new_event_loop())
     
     ThreadPool = ThreadPoolExecutor(MAX_CLIENTS)
     EventLoop  = asyncio.get_event_loop()
-    EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
-    ircserver  = IRCServer(EventLoop, (options.listen_address, int(options.listen_port)))
+    ircserver  = IRCServer(
+                    EventLoop,
+                    (options.listen_address, int(options.listen_port)),
+                    options.plugin_paths,
+                    read_on_exec=options.debug,
+    )
 
     if options.debug:
         EventLoop.set_debug(True)
 
+    # Start.
     try:
-        logging.info('Starting psyrcd on %s:%s' % (options.listen_address, options.listen_port))
-        if options.preload and scripts_dir:
-            for filename in os.listdir(scripts_dir):
-                if os.path.isfile(scripts_dir + filename):
-                    ircserver.scripts.load(filename)
+        logging.info('Starting psyrcd on %s:%s' % \
+            (options.listen_address, options.listen_port))
+        
+        if options.preload:
+            if options.plugin_paths:
+                ircserver.plugins.init(config)
+            
+            if scripts_dir:
+                for filename in os.listdir(scripts_dir):
+                    if os.path.isfile(scripts_dir + filename):
+                        ircserver.scripts.load(filename)
+
+        EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
         EventLoop.run_forever()
     except socket.error as e:
         logging.error(repr(e))
