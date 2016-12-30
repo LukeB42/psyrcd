@@ -474,12 +474,12 @@ class ScriptContext(dict):
         {"client": client, "channel": channel, "line": line, "mode": mode,
          "func": func}
 
-    The reason for using a class instead of the plain dictionaries that were
-    used previously is to automatically provide instances of Line when a lookup
-    is made for the value of "line" from within a script.
+    This class is used instead of the plain dictionaries that were
+    used previously to automatically provide instances of Line when a lookup
+    is made for the value of `line` from within scripts and plugins.
 
-    Given that setting the value for "line" automatically creates an instance
-    of Line, it should be possible to substitute for a plain Python string
+    Given that setting the value for `line` automatically creates an instance
+    of Line it should be possible to substitute for a plain Python string
     when calling scripted commands, i.e.: command({"client": self, "line": line})
     is equivalent to command(ctx).
     """
@@ -664,7 +664,6 @@ class IRCClient(object):
         # Keeps the hostmask unique which keeps bans functioning:
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
-        #threading.Thread.__init__(self, name=self.hostmask)
         logging.info('Client connected: %s' % self.host[0])
 
         # TODO: Recognise other SSL handshakes.
@@ -711,7 +710,8 @@ class IRCClient(object):
 
     def asyncio_reader(self):
         """
-        Container for rotating coroutines.
+        Container for iterating the coroutine responsible for a plaintext
+        connection.
         """
         try:
             yield from self._handle()
@@ -732,6 +732,7 @@ class IRCClient(object):
         """
         thread_reader is for recv() calls on blocking connections without
         confusing the interpreter with `yield from`.
+        Specifically it's for SSL connections.
         """
         while True:
             buf = self.request.recv(1024)
@@ -877,7 +878,6 @@ class IRCClient(object):
                 except IOError:
                     client.finish()
             
-
     def write(self, *params, msgprefix=":%s NOTICE " % SRV_DOMAIN):
         """
         Quickly transmit server notices to client connections.
@@ -3027,11 +3027,15 @@ def ping_routine(EventLoop):
 
 def apply_config(config, options) -> bool:
     """
-    Also worth remembering that the logging module is available globally if
-    you'd like to handle that from the configuration file.
-    
-    There's also nothing stopping you from applying multiple configs.
+    `apply_config` maps blocks of HCL to globals that are used throughout
+    the IRCD.
     """
+    # NOTE: The logging module is available globally if you'd
+    #       like to define formatting in the configuration file.
+    # There's also nothing stopping you from applying multiple configs.
+    # TODO: One of the greatest overhauls to perform within this project is to
+    #       parameterise the IRCServer class to accept a dictionary which it
+    #       then passes to IRCClient, instead of relying on global variables at all.
     if "oper" in config:
         oper_block = config["oper"]
         # NOTE(ljb): Should be a list of username / password_hash tuples.

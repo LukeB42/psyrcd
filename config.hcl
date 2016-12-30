@@ -3,7 +3,7 @@ server {
     domain         = "irc.psybernetics.org"
     description    = "I fought the lol, and. The lol won."
     welcome        = "Welcome to {}" // Formatted with server["name"].
-    link_key       = "${PSYRCD_LINK_KEY}"
+    link_key       = "${PSYRCD_LINK_KEY}" // Populated from the environment.
     ping_frequency = 120 
 
     max {
@@ -16,19 +16,19 @@ server {
 }
 
 oper {
-    // Set the username to an empty / falsy value to disable the oper system.
+    /* Set the username to a false value to disable the oper system.
+     * Set the password to true to generate a random password, false to disable
+     * the oper system, a string of your choice or pipe at runtime:
+     * $ openssl rand -base64 32 | psyrcd --preload -f
+     */
     username = true
-    password = true  // Set to true to generate a random password, false to
-}                    // disable the oper system, a string of your choice or
-                     // pipe at runtime: openssl rand -base64 32 | psyrcd -f
+    password = true  
+}
 services {
-    // Nickname registration service.
     nickserv {
         enabled = false
         database_uri = "sqlite:///var/opt/psyrcd/nickserv.db"
     }
-
-    // Channel registration service.
     chanserv {
         enabled = false
         database_uri = "sqlite:////var/opt/psyrcd/chanserv.db"
