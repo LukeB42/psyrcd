@@ -788,7 +788,7 @@ class IRCClient(object):
                     )
                     response = handler(ctx)
                     if not response:
-                        response = str()
+                        response = ""
                 else:
                     handler = getattr(self, 'handle_%s' % (command.lower()), None)
                     if handler:
@@ -799,17 +799,17 @@ class IRCClient(object):
                     raise IRCError(ERR_UNKNOWNCOMMAND, ':%s Unknown command' % command.upper())
             
             except AttributeError as err:
-                response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                response = ':%s ERROR :%s %s' % (self.server.config.server.domain, self.client_ident(), err)
                 self.broadcast('umode:W', response)
                 logging.error(err)
             
             except IRCError as err:
-                response = ':%s %s %s %s' % (SRV_DOMAIN, err.code, self.nick, err.value)
+                response = ':%s %s %s %s' % (self.server.config.server.domain, err.code, self.nick, err.value)
                 logging.error('%s' % (response))
             
             # It helps to comment the following exception when debugging
             except Exception as err:
-                response = ':%s ERROR :%s %s' % (SRV_DOMAIN, self.client_ident(), err)
+                response = ':%s ERROR :%s %s' % (self.server.config.server.domain, self.client_ident(), err)
                 self.broadcast('umode:W', response)
                 self.broadcast(self.nick, response)
                 logging.error(err)
@@ -877,7 +877,8 @@ class IRCClient(object):
                     client.request.send(message)
                 except IOError:
                     client.finish()
-            
+           
+    # NOTE: Unsightly use of `SRV_DOMAIN` global in format string:
     def write(self, *params, msgprefix=":%s NOTICE " % SRV_DOMAIN):
         """
         Quickly transmit server notices to client connections.
@@ -1003,7 +1004,7 @@ class IRCClient(object):
             self.broadcast(self.nick, ':%s %s %s :%s' % \
                  (self.server.servername, RPL_WELCOME, self.nick, SRV_WELCOME))
             self.broadcast(self.nick, ':%s %s %s :Your host is %s, running version %s' % \
-                (self.server.servername, RPL_YOURHOST, self.nick, SRV_DOMAIN, SRV_VERSION))
+                (self.server.servername, RPL_YOURHOST, self.nick, self.server.config.server.domain, SRV_VERSION))
             self.broadcast(self.nick, ':%s %s %s :This server was created %s' % \
                 (self.server.servername, RPL_CREATED, self.nick,SRV_CREATED))
             # opers, channels, clients and MOTD
@@ -1011,12 +1012,12 @@ class IRCClient(object):
             self.handle_motd(None)
             # Hostmasking
             self.broadcast(self.nick, ':%s %s %s %s :is now your displayed host' % \
-                (SRV_DOMAIN, RPL_HOSTHIDDEN, self.nick, self.hostmask))
+                (self.server.config.server.domain, RPL_HOSTHIDDEN, self.nick, self.hostmask))
             if self.modes:
                 self.broadcast(self.nick, ':%s MODE %s +%s' % \
                     (self.client_ident(True), self.nick, ''.join(self.modes.keys())))
             self.broadcast('umode:W',':%s NOTICE *: Client %s connected.' % \
-            (SRV_DOMAIN, self.client_ident()))
+            (self.server.config.server.domain, self.client_ident()))
         else:
             # User isn't quite changing nick
             if self.server.clients.get(nick, None) == self:
@@ -1093,7 +1094,7 @@ class IRCClient(object):
                 except Exception as err:
                     logging.error('%s in %s' % (err,script.file))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s while connecting.' % \
-                    (SRV_DOMAIN,self.client_ident(), err, script.file))
+                    (self.server.config.server.domain,self.client_ident(), err, script.file))
             return ""
 
     @links
@@ -1107,14 +1108,14 @@ class IRCClient(object):
             self.client.broadcast(
                 "umode:W",
                 ":%s NOTICE * :Warn: %s has tried the SERVER command. %s is not a remote server." % \
-                (SRV_DOMAIN, self.client.client_ident(), self.client.client_ident()))
+                (self.server.config.server.domain, self.client.client_ident(), self.client.client_ident()))
             return
         
         if not params or len(params.split()) != 4:
             self.client.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried to negotiate a server link." % \
-                (SRV_DOMAIN, self.client.client_ident()))
+                (self.server.config.server.domain, self.client.client_ident()))
             self.finish()
 
         version, domain, net_name, link_key = params.split()
@@ -1129,14 +1130,14 @@ class IRCClient(object):
             self.client.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried negotiating a server link from version %s." % \
-                (SRV_DOMAIN, self.client.client_ident(), version))
+                (self.server.config.server.domain, self.client.client_ident(), version))
             self.finish()
 
         if link_key != self.server.link_key:
             self.client.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried negotiating a server link using an invalid link key." % \
-                (SRV_DOMAIN, self.client.client_ident()))
+                (self.server.config.server.domain, self.client.client_ident()))
             self.finish()
 
         return ": ACCEPTED"
@@ -1168,9 +1169,9 @@ class IRCClient(object):
         if os.path.exists('MOTD'):
             MOTD = open('MOTD')
             for line in MOTD:
-                self.broadcast(self.nick, ":%s 372 %s :- %s" % (SRV_DOMAIN, self.nick, line.strip('\n')))
+                self.broadcast(self.nick, ":%s 372 %s :- %s" % (self.server.config.server.domain, self.nick, line.strip('\n')))
         else:
-            self.broadcast(self.nick, ":%s 372 %s :- MOTD file missing." % (SRV_DOMAIN, self.nick))
+            self.broadcast(self.nick, ":%s 372 %s :- MOTD file missing." % (self.server.config.server.domain, self.nick))
         self.broadcast(self.nick, ':%s 376 %s :End of MOTD command.' % (self.server.servername, self.nick))
 
     @links
@@ -1179,9 +1180,9 @@ class IRCClient(object):
         if os.path.exists('RULES'):
             RULES = open('RULES')
             for line in RULES:
-                self.broadcast(self.nick, ":%s 232 %s :- %s" % (SRV_DOMAIN, self.nick, line.strip('\n')))
+                self.broadcast(self.nick, ":%s 232 %s :- %s" % (self.server.config.server.domain, self.nick, line.strip('\n')))
         else:
-            self.broadcast(self.nick, ":%s 434 %s :- RULES file missing." % (SRV_DOMAIN, self.nick))
+            self.broadcast(self.nick, ":%s 434 %s :- RULES file missing." % (self.server.config.server.domain, self.nick))
         self.broadcast(self.nick, ':%s 376 %s :End of RULES command.' % (self.server.servername, self.nick))
 
     def handle_ping(self, params):
@@ -1270,7 +1271,7 @@ class IRCClient(object):
                     except Exception as err:
                         logging.error('%s in %s' % (err,script.file))
                         self.broadcast('umode:W',':%s ERROR %s found %s in %s while joining %s' % \
-                        (SRV_DOMAIN,self.client_ident(),err,script.file,r_channel_name))
+                        (self.server.config.server.domain,self.client_ident(),err,script.file,r_channel_name))
 
             # Add ourself to the channel and the channel to users' channel list.
             channel.clients.add(self)
@@ -1286,10 +1287,10 @@ class IRCClient(object):
             # Send the topic.
             if channel.topic:
                 response = ':%s %s %s %s :%s' % \
-                    (SRV_DOMAIN, RPL_TOPIC, self.nick, channel.name, channel.topic)
+                    (self.server.config.server.domain, RPL_TOPIC, self.nick, channel.name, channel.topic)
                 self.broadcast(self.nick,response)
                 response = ':%s %s %s %s %s %s' % \
-                    (SRV_DOMAIN, RPL_TOPICWHOTIME, self.nick, channel.name, channel.topic_by, channel.topic_time)
+                    (self.server.config.server.domain, RPL_TOPICWHOTIME, self.nick, channel.name, channel.topic_by, channel.topic_time)
                 self.broadcast(self.nick,response)
 
             self.handle_names(channel.name)
@@ -1375,16 +1376,16 @@ class IRCClient(object):
                             item[0] = re_to_irc(item[0])
                             item = ' '.join(item)
                             if m =='b': line = ":%s %s %s %s %s" % \
-                                (SRV_DOMAIN, RPL_BANLIST, self.nick, channel.name, item)
+                                (self.server.config.server.domain, RPL_BANLIST, self.nick, channel.name, item)
                             elif m == 'e': line = ":%s %s %s %s %s" % \
-                                (SRV_DOMAIN, RPL_EXCEPTLIST, self.nick, channel.name, item)
+                                (self.server.config.server.domain, RPL_EXCEPTLIST, self.nick, channel.name, item)
                             self.broadcast(self.nick,line)
                     
                     if m == 'b': response = ":%s %s %s %s :End of Channel Ban List" % \
-                        (SRV_DOMAIN, RPL_ENDOFBANLIST, self.nick, channel.name)
+                        (self.server.config.server.domain, RPL_ENDOFBANLIST, self.nick, channel.name)
                     
                     elif m == 'e': response = ":%s %s %s %s :End of Channel Exception List" % \
-                        (SRV_DOMAIN, RPL_ENDOFEXCEPTLIST, self.nick, channel.name)
+                        (self.server.config.server.domain, RPL_ENDOFEXCEPTLIST, self.nick, channel.name)
                     self.broadcast(self.nick,response)
 
                 elif self.nick in channel.modes['h'] or self.nick in channel.modes['o'] \
@@ -1409,25 +1410,29 @@ class IRCClient(object):
                                 script = self.server.scripts.cmodes[mode][0]
                                 # Send "set=True" into the scripts' namespace so it knows to adjust this channel.
                                 try:
-                                    script.execute({'client':           self,
-                                                    'channel':          channel,
-                                                    'mode':             mode,
-                                                    'args':             args,
-                                                    'setting_mode':     True})
+                                    
+                                    script.execute({'client':       self,
+                                                    'channel':      channel,
+                                                    'mode':         mode,
+                                                    'args':         args,
+                                                    'setting_mode': True})
+
                                     if 'cancel' in script.env:
                                         if isinstance(script['cancel'], (str, bytes)):
                                             return(script['cancel'])
                                         else:
                                             return('')
+                                    
                                     self.broadcast(target,":%s MODE %s %s" % \
                                     (self.client_ident(True), target,
                                     params.split()[1]))
                                     return
+                                
                                 except Exception as err:
                                     del channel.modes[mode]
                                     logging.error('%s in %s' % (err,script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                        (SRV_DOMAIN,self.client_ident(), err, script.file))
+                                        (self.server.config.server.domain,self.client_ident(), err, script.file))
                             else:
                                 for i in mode:
                                     if not i in channel.supported_modes:
@@ -1446,7 +1451,7 @@ class IRCClient(object):
                             
                             if unknown_modes:
                                 self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
-                                    (SRV_DOMAIN, ERR_UNKNOWNMODE, self.nick, unknown_modes))
+                                    (self.server.config.server.domain, ERR_UNKNOWNMODE, self.nick, unknown_modes))
                         
                         elif mode.startswith('-'):
                             mode = mode[1:]
@@ -1477,7 +1482,7 @@ class IRCClient(object):
                                 except Exception as err:
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                        (SRV_DOMAIN,self.client_ident(),err,script.file))
+                                        (self.server.config.server.domain,self.client_ident(),err,script.file))
                                 
                                 if mode in channel.modes:
                                     # Using "/mode -script:" clears all values.
@@ -1554,7 +1559,7 @@ class IRCClient(object):
                                     del channel.modes[mode]
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (SRV_DOMAIN,self.client_ident(), err, script.file))
+                                    (self.server.config.server.domain,self.client_ident(), err, script.file))
                             else:
                                 for i in mode:
                                     if not i in channel.supported_modes:
@@ -1600,7 +1605,7 @@ class IRCClient(object):
                             if unknown_modes:
                                 self.broadcast(self.nick,
                                 ':%s %s %s %s :unkown mode(s)' % \
-                                (SRV_DOMAIN, ERR_UNKNOWNMODE, self.nick, unknown_modes))
+                                (self.server.config.server.domain, ERR_UNKNOWNMODE, self.nick, unknown_modes))
                         
                             elif mode.startswith('-'):
                                 mode = mode[1:]
@@ -1631,7 +1636,7 @@ class IRCClient(object):
                                 except Exception as err:
                                     logging.error('%s in %s' % (err, script.file))
                                     self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (SRV_DOMAIN,self.client_ident(), err, script.file))
+                                    (self.server.config.server.domain,self.client_ident(), err, script.file))
                                 if mode in channel.modes:
                                     if isinstance(channel.modes[mode], (int, float)):
                                         del channel.modes[mode]
@@ -1753,14 +1758,15 @@ class IRCClient(object):
                         except Exceptiona as err:
                             logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (SRV_DOMAIN, self.client_ident(), err, script.file))
+                                (self.server.config.server.domain, self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
                 self.broadcast(self.nick,':%s 324 %s %s +%s' % \
                 (self.server.servername, self.nick, params, modes))
                 for item in scripts:
                     self.broadcast(self.nick,':%s 324 %s %s +%s' % \
-                    (SRV_DOMAIN, self.nick, params, item))
+                    (self.server.config.server.domain, self.nick, params, item))
+            
             elif self.oper or params == self.nick:
                 modes = '+'
                 scripts = []
@@ -1782,13 +1788,13 @@ class IRCClient(object):
                         except Exception as err:
                             logging.error('%s in %s' % (err, script.file))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (SRV_DOMAIN,self.client_ident(), err, script.file))
+                                (self.server.config.server.domain,self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
                 self.broadcast(self.nick,':%s %s %s :%s' % \
-                (SRV_DOMAIN, RPL_UMODEIS, params, modes))
+                (self.server.config.server.domain, RPL_UMODEIS, params, modes))
                 for item in scripts: self.broadcast(self.nick,':%s %s %s %s +%s' % \
-                    (SRV_DOMAIN, RPL_UMODEIS, params, item))
+                    (self.server.config.server.domain, RPL_UMODEIS, params, item))
 
     @links
     @scripts
@@ -1805,12 +1811,12 @@ class IRCClient(object):
                 channel.modes['i'].append(target)
 
                 response = ':%s %s %s %s %s' % \
-                    (SRV_DOMAIN, RPL_INVITING, self.nick, target, channel.name)
+                    (self.server.config.server.domain, RPL_INVITING, self.nick, target, channel.name)
                 self.broadcast(self.nick, response)
 
                 # Tell the channel
                 response = ':%s NOTICE @%s :%s invited %s into the channel.' % \
-                    (SRV_DOMAIN, channel.name, self.nick, target)
+                    (self.server.config.server.domain, channel.name, self.nick, target)
                 self.broadcast(channel.name, response)
 
                 # Tell the invitee
@@ -1829,10 +1835,10 @@ class IRCClient(object):
         if channel:
             if 'i' in channel.modes and not channel.name in self.channels:
                 response = ':%s NOTICE @%s :%s knocked on %s.' % \
-                    (SRV_DOMAIN, channel.name, self.nick, channel.name)
+                    (self.server.config.server.domain, channel.name, self.nick, channel.name)
                 self.broadcast(channel.name, response)
                 response = ':%s NOTICE %s : Knocked on %s' % \
-                    (SRV_DOMAIN, self.nick, channel.name)
+                    (self.server.config.server.domain, self.nick, channel.name)
                 self.broadcast(self.nick, response)
 
     @links
@@ -1851,12 +1857,12 @@ class IRCClient(object):
         # Userhost line.
         if user.vhost:
             response = ':%s %s %s %s %s %s * %s' % \
-                (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
+                (self.server.config.server.domain, RPL_WHOISUSER, self.nick, user.nick,
                 user.nick, user.vhost, user.realname)
             self.broadcast(self.nick,response)
         else:
             response = ':%s %s %s %s %s %s * %s' % \
-                (SRV_DOMAIN, RPL_WHOISUSER, self.nick, user.nick,
+                (self.server.config.server.domain, RPL_WHOISUSER, self.nick, user.nick,
                 user.nick, user.hostmask, user.realname)
             self.broadcast(self.nick,response)
 
@@ -1867,7 +1873,7 @@ class IRCClient(object):
                 channels.append(channel.name)
         if channels:
             response = ':%s %s %s %s :%s' % \
-                (SRV_DOMAIN, RPL_WHOISCHANNELS, self.nick, user.nick,
+                (self.server.config.server.domain, RPL_WHOISCHANNELS, self.nick, user.nick,
                 ' '.join(channels))
             self.broadcast(self.nick, response)
 
@@ -1875,24 +1881,24 @@ class IRCClient(object):
         if user.oper and 'H' not in user.modes:
             if 'A' in user.modes:
                 response = ':%s %s %s %s :%s is a server admin.' % \
-                    (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
+                    (self.server.config.server.domain, RPL_WHOISOPERATOR, self.nick, user.nick,
                         user.nick)
                 self.broadcast(self.nick, response)
             if 'O' in user.modes:
                 response = ':%s %s %s %s :%s is a server operator.' % \
-                    (SRV_DOMAIN, RPL_WHOISOPERATOR, self.nick, user.nick,
+                    (self.server.config.server.domain, RPL_WHOISOPERATOR, self.nick, user.nick,
                         user.nick)
                 self.broadcast(self.nick, response)
 
         if self.oper or self.nick == user.nick:
             if user.rhost:
                 response = ':%s %s %s %s %s %s' % \
-                    (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                    (self.server.config.server.domain, RPL_WHOISSPECIAL, self.nick, user.nick,
                     user.rhost, user.host[0])
                 self.broadcast(self.nick, response)
             else:
                 response = ':%s %s %s %s %s' % \
-                    (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                    (self.server.config.server.domain, RPL_WHOISSPECIAL, self.nick, user.nick,
                         user.host[0])
                 self.broadcast(self.nick, response)
 
@@ -1903,7 +1909,7 @@ class IRCClient(object):
                     
                     for line in user.modes[mode].__whois__.splitlines():
                         response = ':%s %s %s %s +%s: %s' % \
-                            (SRV_DOMAIN, RPL_WHOISSPECIAL, self.nick, user.nick,
+                            (self.server.config.server.domain, RPL_WHOISSPECIAL, self.nick, user.nick,
                             mode, line)
                         self.broadcast(self.nick, response)
                 except Exception as err:
@@ -1912,24 +1918,24 @@ class IRCClient(object):
 
         # Server info line
         response = ':%s %s %s %s %s :%s' % \
-            (SRV_DOMAIN, RPL_WHOISSERVER, self.nick, user.nick,
-                SRV_DOMAIN, SRV_DESCRIPTION)
+            (self.server.config.server.domain, RPL_WHOISSERVER, self.nick, user.nick,
+                self.server.config.server.domain, SRV_DESCRIPTION)
         self.broadcast(self.nick, response)
 
         if 'Z' in user.modes:
             response = ':%s %s %s %s :is using a secure connnection' % \
-                (SRV_DOMAIN, RPL_WHOISSECURE, self.nick, user.nick)
+                (self.server.config.server.domain, RPL_WHOISSECURE, self.nick, user.nick)
             self.broadcast(self.nick, response)
 
         # Idle and connection time.
         idle_time = int(str(time.time())[:10]) - int(user.last_activity)
         response = ':%s %s %s %s %i %s :seconds idle, signon time' % \
-            (SRV_DOMAIN, RPL_WHOISIDLE, self.nick, user.nick, idle_time,
+            (self.server.config.server.domain, RPL_WHOISIDLE, self.nick, user.nick, idle_time,
                 user.connected_at)
         self.broadcast(self.nick, response)
 
         # That about wraps 'er up.
-        response = ':%s %s %s %s :End of /WHOIS list.' % (SRV_DOMAIN,
+        response = ':%s %s %s %s :End of /WHOIS list.' % (self.server.config.server.domain,
             RPL_ENDOFWHOIS, self.nick, user.nick)
 
     @links
@@ -1948,16 +1954,16 @@ class IRCClient(object):
                     host = host.split('@')[1]
                     if client.oper:
                         self.broadcast(self.nick, ":%s %s %s %s %s %s %s %s H* :n/a %s" % \
-                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name,
-                        client.user, host, SRV_DOMAIN, client.nick,
+                        (self.server.config.server.domain, RPL_WHOREPLY, self.nick, channel.name,
+                        client.user, host, self.server.config.server.domain, client.nick,
                         client.realname))
                     else:
                         self.broadcast(self.nick, ":%s %s %s %s %s %s %s %s H :n/a %s" % \
-                        (SRV_DOMAIN, RPL_WHOREPLY, self.nick, channel.name,
-                        client.user, host, SRV_DOMAIN, client.nick,
+                        (self.server.config.server.domain, RPL_WHOREPLY, self.nick, channel.name,
+                        client.user, host, self.server.config.server.domain, client.nick,
                         client.realname))
                 self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
-                (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, channel.name))            
+                (self.server.config.server.domain, RPL_ENDOFWHO, self.nick, channel.name))            
         
         elif self.oper and params == '*':
             for client in self.server.clients.values():
@@ -1965,14 +1971,14 @@ class IRCClient(object):
                 host = host.split('@')[1]
                 if client.oper:
                     self.broadcast(self.nick, ":%s %s %s - %s %s %s %s H* :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
-                    SRV_DOMAIN, client.nick, client.realname))
+                    (self.server.config.server.domain, RPL_WHOREPLY, self.nick, client.user, host,
+                    self.server.config.server.domain, client.nick, client.realname))
                 else:
                     self.broadcast(self.nick, ":%s %s %s %s %s %s %s H :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
-                    SRV_DOMAIN, client.nick, client.realname))
+                    (self.server.config.server.domain, RPL_WHOREPLY, self.nick, client.user, host,
+                    self.server.config.server.domain, client.nick, client.realname))
             self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
-            (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
+            (self.server.config.server.domain, RPL_ENDOFWHO, self.nick, client.nick))
         
         else:
             client = self.server.clients.get(params)
@@ -1982,14 +1988,14 @@ class IRCClient(object):
                 host = host.split('@')[1]
                 if client.oper:
                     self.broadcast(self.nick, ":%s %s %s - %s %s %s %s H* :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
-                    SRV_DOMAIN, client.nick, client.realname))
+                    (self.server.config.server.domain, RPL_WHOREPLY, self.nick, client.user, host,
+                    self.server.config.server.domain, client.nick, client.realname))
                 else:
                     self.broadcast(self.nick, ":%s %s %s %s %s %s %s H :n/a %s" % \
-                    (SRV_DOMAIN, RPL_WHOREPLY, self.nick, client.user, host,
-                    SRV_DOMAIN, client.nick, client.realname))
+                    (self.server.config.server.domain, RPL_WHOREPLY, self.nick, client.user, host,
+                    self.server.config.server.domain, client.nick, client.realname))
                 self.broadcast(self.nick, ":%s %s %s %s :End of /WHO list." % \
-                (SRV_DOMAIN, RPL_ENDOFWHO, self.nick, client.nick))
+                (self.server.config.server.domain, RPL_ENDOFWHO, self.nick, client.nick))
 
     @scripts
     def handle_topic(self, params):
@@ -2029,9 +2035,9 @@ class IRCClient(object):
         
         else:
             self.broadcast(self.nick, ':%s %s %s %s :%s' % \
-                (SRV_DOMAIN, RPL_TOPIC, self.nick, channel.name, channel.topic))
+                (self.server.config.server.domain, RPL_TOPIC, self.nick, channel.name, channel.topic))
             self.broadcast(self.nick, ':%s %s %s %s %s %s' % \
-                (SRV_DOMAIN, RPL_TOPICWHOTIME, self.nick, channel.name,
+                (self.server.config.server.domain, RPL_TOPICWHOTIME, self.nick, channel.name,
                 channel.topic_by, channel.topic_time))
 
     @scripts
@@ -2078,41 +2084,41 @@ class IRCClient(object):
 
         channel = self.server.channels.get(channel)
         if not channel:
-            return(':%s NOTICE %s :No such channel.' % (SRV_DOMAIN, self.nick))
+            return(':%s NOTICE %s :No such channel.' % (self.server.config.server.domain, self.nick))
 
         if not self.oper and self.nick not in channel.modes['h'] and self.nick \
             not in channel.modes['o'] \
         and self.nick not in channel.modes['a'] and self.nick not in \
         channel.modes['q']:
             return(':%s %s %s %s :You are not a channel operator.' % \
-            (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name))
+            (self.server.config.server.domain, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name))
 
         target = self.server.clients.get(target)
         if not target:
             raise IRCError(ERR_NOSUCHNICK, target)
 
-            return(':%s NOTICE @%s :No such nick.' % (SRV_DOMAIN, channel.name))
+            return(':%s NOTICE @%s :No such nick.' % (self.server.config.server.domain, channel.name))
         if 'Q' in target.modes:
-            return(':%s NOTICE @%s :Cannot kick +Q user %s.' % (SRV_DOMAIN,
+            return(':%s NOTICE @%s :Cannot kick +Q user %s.' % (self.server.config.server.domain,
                 channel.name, target.nick))
 
         if not self.oper:
             if not self.nick in channel.modes['q'] and target.nick in channel.modes['q']:
                 return(":%s %s %s %s :Can't kick %s." % \
-                        (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick,
+                        (self.server.config.server.domain, ERR_CHANOPPRIVSNEEDED, self.nick,
                         channel.name, target.nick))
             if (not self.nick in channel.modes['a'] and not self.nick in \
                 channel.modes['q']) and (target.nick in channel.modes['a'] \
             or target.nick in channel.modes['q']):
                 return(":%s %s %s %s :Can't kick %s." % \
-                    (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick,
+                    (self.server.config.server.domain, ERR_CHANOPPRIVSNEEDED, self.nick,
                     channel.name, target.nick))
             if (not self.nick in channel.modes['o'] and not self.nick in \
                 channel.modes['a'] and not self.nick in channel.modes['q']) \
             and (target.nick in channel.modes['o'] or target.nick in \
             channel.modes['a'] or target.nick in channel.modes['q']):
                 return(":%s %s %s %s :Can't kick %s." % \
-                    (SRV_DOMAIN, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name, \
+                    (self.server.config.server.domain, ERR_CHANOPPRIVSNEEDED, self.nick, channel.name, \
                     target.nick))
 
         if message:
@@ -2137,7 +2143,7 @@ class IRCClient(object):
         """
         self.last_activity = str(time.time())[:10] 
         self.broadcast(self.nick, ':%s %s %s Channel :Users  Name' % \
-            (SRV_DOMAIN, RPL_LISTSTART, self.nick))
+            (self.server.config.server.domain, RPL_LISTSTART, self.nick))
         for channel in self.server.channels.values():
             if ('s' not in channel.modes) or ('S' in self.modes):
                 tmp_modes = []
@@ -2145,9 +2151,9 @@ class IRCClient(object):
                     if mode not in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
                         tmp_modes.append(mode)
                 self.broadcast(self.nick, ':%s %s %s %s %i :[+%s] %s' % \
-                (SRV_DOMAIN,RPL_LIST, self.nick, channel.name, len(channel.clients),
+                (self.server.config.server.domain,RPL_LIST, self.nick, channel.name, len(channel.clients),
                 ''.join(tmp_modes), channel.topic))
-        return(':%s %s %s :End of /LIST' % (SRV_DOMAIN, RPL_LISTEND, self.nick))
+        return(':%s %s %s :End of /LIST' % (self.server.config.server.domain, RPL_LISTEND, self.nick))
 
     @scripts
     def handle_oper(self, params):
@@ -2170,19 +2176,19 @@ class IRCClient(object):
                     oper = self.server.opers.get(opername)
                     if (not oper) or (not oper.passwd) or (oper.passwd != password):
                         return ':%s NOTICE %s :No O:Lines for your host.' % \
-                                (SRV_DOMAIN, self.nick)
+                                (self.server.config.server.domain, self.nick)
                 
                 self.vhost = oper.vhost
                 self.oper = oper
                 self.broadcast('umode:W', ':%s NOTICE _ :%s is now an IRC operator.' % \
-                    (SRV_DOMAIN, self.nick))
+                    (self.server.config.server.domain, self.nick))
                 for i in oper.modes:
                     self.modes[i] = 1
                     modeline = modeline + i
                 self.broadcast(self.nick, ':%s MODE %s +%s' %
-                               (SRV_DOMAIN, self.nick, modeline))
+                               (self.server.config.server.domain, self.nick, modeline))
                 return(':%s NOTICE %s :Auth successful for %s.' %
-                        (SRV_DOMAIN, self.nick, opername))
+                        (self.server.config.server.domain, self.nick, opername))
             else:
                 return(': Incorrect usage.')
 
@@ -2204,12 +2210,12 @@ class IRCClient(object):
             if target:
                 target.vhost = vhost
                 return(':%s NOTICE %s :Changed the vhost for %s to %s.' % \
-                    (SRV_DOMAIN, self.nick, target.nick, target.vhost))
+                    (self.server.config.server.domain, self.nick, target.nick, target.vhost))
             else:
-                return(':%s NOTICE %s :Invalid nick: %s.' % (SRV_DOMAIN, self.nick, target))
+                return(':%s NOTICE %s :Invalid nick: %s.' % (self.server.config.server.domain, self.nick, target))
         else:
             return(':%s NOTICE %s :You must be identified as an operator to use CHGHOST.' % \
-                (SRV_DOMAIN, self.nick))
+                (self.server.config.server.domain, self.nick))
 
     @scripts
     def handle_kill(self, params):
@@ -2220,7 +2226,7 @@ class IRCClient(object):
             if client:
                 if 'A' in client.modes:
                     return(':%s ERROR %s is an IRC Administrator.' % \
-                        (SRV_DOMAIN, client.nick))
+                        (self.server.config.server.domain, client.nick))
                 else:
                     client.finish(':%s QUIT :Killed by %s: %s' % \
                         (client.client_ident(True), self.nick, reason))
@@ -2235,14 +2241,14 @@ class IRCClient(object):
         """
         if params == "command":
             response = ": Available commands are %s." % \
-                ', '.join([c[7:] for c in dir(self) if c.startswith("handle_")])
+                ', '.join([c[7:] for _ in dir(self) if _.startswith("handle_")])
             self.broadcast(self.nick, response)
 
         elif params == "umode": pass
         elif params == "cmode": pass
         elif params == "ocommand" and self.oper:
             response = ": Available OperServ commands are %s." % \
-                ', '.join([c[7:] for c in dir(self.oper) if c.startswith("handle_")])
+                ', '.join([c[7:] for _ in dir(self.oper) if _.startswith("handle_")])
             self.broadcast(self.nick, response)
         
         elif not ' ' in params:
@@ -2265,14 +2271,14 @@ class IRCClient(object):
             (section, topic) = params.split(' ', 1)
             if section == "umode":
                 if topic in self.supported_modes:
-                    message = ": %s help on user mode %s" % (SRV_DOMAIN, topic)
+                    message = ": %s help on user mode %s" % (self.server.config.server.domain, topic)
                     self.broadcast(self.nick, message)
                     message = ": %s" % self.supported_modes[topic]
                     self.broadcast(self.nick, message)
             
             elif section == "command":   
                 if hasattr(self, "handle_" + topic):   
-                    message = ": %s help on command %s" % (SRV_DOMAIN,
+                    message = ": %s help on command %s" % (self.server.config.server.domain,
                                                            topic.upper())
                     self.broadcast(self.nick, message)
                     command = getattr(self, "handle_" + topic)
@@ -2295,7 +2301,7 @@ class IRCClient(object):
                 if self.oper:
                     if hasattr(self.oper, "handle_" + topic):
                         message = ": %s help on operserv command %s" % (
-                            SRV_DOMAIN, topic.upper())
+                            self.server.config.server.domain, topic.upper())
                         self.broadcast(self.nick, message)
                         command = getattr(self.oper, "handle_" + topic)
                         docs = command.__doc__.split('\n')
@@ -2358,17 +2364,17 @@ class IRCClient(object):
                 if host in self.server.lines['K']: raise IRCError(500, "Host already K:Lined.")
                 self.server.lines['K'][host] = [self.client_ident(True), t, reason]
                 self.broadcast('umode:W', ':%s NOTICE * :%s added a K:Line for %s "%s"' % \
-                    (SRV_DOMAIN, self.client_ident(True), re_to_irc(host), reason))
+                    (self.server.config.server.domain, self.client_ident(True), re_to_irc(host), reason))
                 
                 for client in self.server.clients.values():
                     if 'A' in client.modes or 'O' in client.modes:
                         self.broadcast(self.nick,
                                 ":%s NOTICE * :The K:Line for %s matches your host!" % \
-                                (SRV_DOMAIN, re_to_irc(host)))
+                                (self.server.config.server.domain, re_to_irc(host)))
                         continue
                     if re.match(host, client.host[0]):
                         self.broadcast('umode:W', ":%s NOTICE * :%s matches this K:Line." %\
-                            (SRV_DOMAIN, client.client_ident()))
+                            (self.server.config.server.domain, client.client_ident()))
                         client.request.send(': This host is K:Lined. Reason: %s\n' % reason)
                         client.handle_quit("K:Lined. Reason: %s" % reason)
                         client.request.close()
@@ -2380,7 +2386,7 @@ class IRCClient(object):
                 if host in self.server.lines['K']:
                     del self.server.lines['K'][host]
                 self.broadcast('umode:W', ':%s NOTICE * :%s removed the K:Line for %s' % \
-                    (SRV_DOMAIN, self.client_ident(True), params.split()[1]))
+                    (self.server.config.server.domain, self.client_ident(True), params.split()[1]))
 
     def client_ident(self, masking=None):
         """
@@ -2437,7 +2443,7 @@ class IRCClient(object):
             return
         
         self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % \
-            (SRV_DOMAIN, self.client_ident()))
+            (self.server.config.server.domain, self.client_ident()))
         logging.info('Client disconnected: %s' % (self.client_ident()))
         
         if len(self.server.clients) == 0:
@@ -2460,11 +2466,12 @@ class IRCClient(object):
         )
 
 class IRCServer(object):
-    def __init__(self, EventLoop, server_address, plugin_paths=[], read_on_exec=False):
+    def __init__(self, EventLoop, config, server_address, plugin_paths=[], read_on_exec=False):
         self.sock           = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.servername     = SRV_DOMAIN
         self.loop           = EventLoop
         self.loop.server    = self
+        self.config         = config        # Many handler methods in `IRCClient` rely on config values.
         self.channels       = {}            # Existing channels (IRCChannel instances) by channel name.
         self.clients        = {}            # Connected clients (IRCClient instances) by nickname.
         self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname.
@@ -3025,7 +3032,17 @@ def ping_routine(EventLoop):
 
     EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
 
-def apply_config(config, options) -> bool:
+class ConfigurationError(Exception):
+    """
+    Exception thrown for configuration errors.
+    """
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return(repr(self.value))
+
+def apply_config(config):
     """
     `apply_config` maps blocks of HCL to globals that are used throughout
     the IRCD.
@@ -3033,9 +3050,6 @@ def apply_config(config, options) -> bool:
     # NOTE: The logging module is available globally if you'd
     #       like to define formatting in the configuration file.
     # There's also nothing stopping you from applying multiple configs.
-    # TODO: One of the greatest overhauls to perform within this project is to
-    #       parameterise the IRCServer class to accept a dictionary which it
-    #       then passes to IRCClient, instead of relying on global variables at all.
     if "oper" in config:
         oper_block = config["oper"]
         # NOTE(ljb): Should be a list of username / password_hash tuples.
@@ -3050,44 +3064,64 @@ def apply_config(config, options) -> bool:
             global OPER_PASSWORD
             OPER_PASSWORD = oper_block["password"]
 
-    if "server" in config:
-        server_block = config["server"]
-        if "name" in server_block:
-            global SRV_NAME
-            SRV_NAME = server_block["name"]
-        if "domain" in server_block:
-            global SRV_DOMAIN
-            SRV_DOMAIN = server_block["domain"]
-        if "description" in server_block:
-            global SRV_DESCRIPTION
-            SRV_DESCRIPTION = server_block["description"]
-        if "welcome" in server_block:
-            global SRV_WELCOME
-            SRV_WELCOME = server_block["welcome"].format(SRV_NAME)
+    if not "server" in config:
+        raise ConfigurationError("\"server\" block missing from Psyrcd configuration.")
+    
+    server_block = config["server"]
 
-        if "ping_frequency" in server_block:
-            global PING_FREQUENCY
-            PING_FREQUENCY = server_block["ping_frequency"]
+    if isinstance(server_block, dict):
+        config["server"] = ScriptContext(**server_block)
+    
+    if "name" in server_block:
+        global SRV_NAME
+        SRV_NAME = server_block["name"]
+    if "domain" in server_block:
+        global SRV_DOMAIN
+        SRV_DOMAIN = server_block["domain"]
+    if "description" in server_block:
+        global SRV_DESCRIPTION
+        SRV_DESCRIPTION = server_block["description"]
+    if "welcome" in server_block:
+        global SRV_WELCOME
+        SRV_WELCOME = server_block["welcome"].format(SRV_NAME)
 
-        if "max" in server_block:
-            max_block = server_block["max"]
-            if "channels" in max_block:
-                global MAX_CHANNELS
-                MAX_CHANNELS = max_block["channels"]
-            if "clients" in max_block:
-                global MAX_CLIENTS
-                MAX_CLIENTS = max_block["clients"]
-            if "idle_time" in max_block:
-                global MAX_IDLE
-                MAX_IDLE = max_block["idle_time"]
-            if "nicklen" in max_block:
-                global MAX_NICKLEN
-                MAX_NICKLEN = max_block["nicklen"]
-            if "topiclen" in max_block:
-                global MAX_TOPICLEN
-                MAX_TOPICLEN = max_block["topiclen"]
+    if "ping_frequency" in server_block:
+        global PING_FREQUENCY
+        PING_FREQUENCY = server_block["ping_frequency"]
 
-    return True
+    if not "max" in config["server"]:
+        raise ConfigurationError("\"max\" block missing from \"server\" block in Psyrcd configuration.")
+
+    max_block = server_block["max"]
+    
+    if isinstance(server_block["max"], dict):
+        config["server"]["max"] = ScriptContext(**max_block)
+    
+    if "channels" in max_block:
+        global MAX_CHANNELS
+        MAX_CHANNELS = max_block["channels"]
+    if "clients" in max_block:
+        global MAX_CLIENTS
+        MAX_CLIENTS = max_block["clients"]
+    if "idle_time" in max_block:
+        global MAX_IDLE
+        MAX_IDLE = max_block["idle_time"]
+    if "nicklen" in max_block:
+        global MAX_NICKLEN
+        MAX_NICKLEN = max_block["nicklen"]
+    if "topiclen" in max_block:
+        global MAX_TOPICLEN
+        MAX_TOPICLEN = max_block["topiclen"]
+
+    # Return an object with simple attribute lookup semantics
+    # 
+    # Permits things like `self.server.config.server.max.clients` from
+    # instances of `IRCClient`.
+    #
+    # Only caveat is the special handling of keys named "line" as we're reusing
+    # `ScriptContext`.
+    #
+    return ScriptContext(**config)
 
 def sha1sum(data): return(hashlib.sha1(data.encode('utf-8')).hexdigest())
 
@@ -3230,9 +3264,7 @@ if __name__ == "__main__":
     epilog = "Using the %s-k%s and %s-c%s options together enables SSL and plaintext connections over the same port." % \
         (color.blue,color.end,color.blue,color.end)
 
-    #parser = argparse.ArgumentParser(prog=prog,version=SRV_VERSION,description=description,epilog=epilog)
     parser = argparse.ArgumentParser(prog=prog, description=description, epilog=epilog, usage=argparse.SUPPRESS)
-#    parser.set_usage(sys.argv[0] + " -f --preload --debug")
     parser.add_argument('--version', action='version', version=SRV_VERSION)
     parser.add_argument("--start",            dest="start", action="store_true",
         default=True, help="(default)")
@@ -3253,7 +3285,7 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--foreground", dest="foreground",
         action="store_true")
     parser.add_argument("--config",           dest="config", action="store_true", 
-        default="config.hcl", help="(defaults to \"config.hcl\")")
+        default="psyrcd.conf", help="(defaults to \"psyrcd.conf\")")
     parser.add_argument("--run-as",           dest="run_as", action="store",
         default=None, help="(defaults to the invoking user)")
     parser.add_argument("--scripts-dir",      dest="scripts_dir",action="append",
@@ -3339,7 +3371,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     with open(options.config, "r") as fd:
         config = hcl.load(fd)
 
-    apply_config(config, options)
+    config = apply_config(config)
 
     if OPER_PASSWORD == True:
         OPER_PASSWORD = hashlib.new('sha512', str(os.urandom(20))\
@@ -3394,6 +3426,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     EventLoop  = asyncio.get_event_loop()
     ircserver  = IRCServer(
                     EventLoop,
+                    config,
                     (options.listen_address, int(options.listen_port)),
                     options.plugin_paths,
                     read_on_exec=options.debug,
