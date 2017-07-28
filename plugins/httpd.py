@@ -6,12 +6,10 @@ from tornado.wsgi import WSGIContainer
 from tornado.web import Application, FallbackHandler
 from tornado.platform.asyncio import AsyncIOMainLoop
 
-ircd = None
 app  = Flask("httpd")
 
 def httpd(ctx):
-    print(dir())
-    return str(dir())
+    return "Running."
 
 def __init__(ctx):
 
