@@ -28,12 +28,7 @@ def __init__(ctx):
         (".*", FallbackHandler, {"fallback": container})    
     ])
 
-    new_evt_loop = AsyncIOMainLoop()
-    #new_evt_loop.asyncio_loop = uvloop.new_event_loop()
-    new_evt_loop.install()
-
-    ctx.server.loop = new_evt_loop.asyncio_loop
-
+    AsyncIOMainLoop().install()
     application.listen(5000)
 
 def __del__(ctx):
