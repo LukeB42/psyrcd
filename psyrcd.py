@@ -749,8 +749,8 @@ class IRCClient(object):
         
         buf = buf.decode('utf-8')
 
-        while buf.find(u"\n") != -1:
-            line, buf = buf.split("\n", 1)
+        while buf.find(u"\r\n") != -1:
+            line, buf = buf.split("\r\n", 1)
             line = line.rstrip()
 
             handler = response = ''
@@ -1368,7 +1368,7 @@ class IRCClient(object):
                     raise IRCError(ERR_NOSUCHCHANNEL, target)
                 
                 # Retrieving bans and excepts
-                if mode in ['b', '+b', 'e', '+e'] and not argument:
+                if mode in {'b', '+b', 'e', '+e'} and not argument:
                     m = mode[-1] 
                     if m in channel.modes:
                         for item in channel.modes[m]:
@@ -1513,7 +1513,7 @@ class IRCClient(object):
                                         if i.isupper() and not self.oper:
                                             continue
                                         
-                                        if i in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
+                                        if i in {'v', 'h', 'o', 'a', 'q', 'e', 'b'}:
                                             continue
                                         
                                         if i == 'i' or (type(channel.modes[i]) == int) or \
@@ -1742,7 +1742,7 @@ class IRCClient(object):
                     (channel.name, channel.name))
                 
                 for mode in channel.modes:
-                    if mode in ['v', 'h', 'o', 'a', 'q', 'e', 'b']:
+                    if mode in {'v', 'h', 'o', 'a', 'q', 'e', 'b'}:
                         continue
                     if mode in self.server.scripts.cmodes:
                         ns = {'client': self, 'channel': channel, 'mode': mode,
@@ -2808,7 +2808,7 @@ class Plugins(pluginbase.PluginSource):
                 (plugin["type"], plugin["name"], plugin["description"]))
         
         if isinstance(module.__package__, dict):
-            _load(module, pkginfo)
+            _load(module, module.__package__)
 
         elif isinstance(module.__package__, (list, tuple, set)):
             for pkginfo in module.__package__:
@@ -3432,14 +3432,8 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
                     read_on_exec=options.debug,
     )
 
-    if options.debug:
-        EventLoop.set_debug(True)
-
     # Start.
     try:
-        logging.info('Starting psyrcd on %s:%s' % \
-            (options.listen_address, options.listen_port))
-        
         if options.preload:
             if options.plugin_paths:
                 ircserver.plugins.init(config)
@@ -3449,13 +3443,16 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
                     if os.path.isfile(scripts_dir + filename):
                         ircserver.scripts.load(filename)
 
-        EventLoop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
-        EventLoop.run_forever()
+        ircserver.loop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
+        logging.info('Starting psyrcd on %s:%s' % \
+            (options.listen_address, options.listen_port))
+        ircserver.loop.set_debug(options.debug)
+        ircserver.loop.run_forever()
     except socket.error as e:
         logging.error(repr(e))
         sys.exit(-2)
     except KeyboardInterrupt:
-        EventLoop.stop()
+        ircserver.loop.stop()
         ThreadPool.shutdown()
         if options.preload and scripts_dir:
             scripts = []
