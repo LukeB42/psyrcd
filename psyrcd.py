@@ -65,6 +65,7 @@ except ImportError:
 import hcl
 import pluginbase
 
+# These constants enable the IRCD to function without a configuration file:
 SRV_VERSION     = "psyrcd-2.0.0"
 NET_NAME        = "psyrcd-dev"
 SRV_DOMAIN      = "irc.psybernetics.org"
@@ -760,7 +761,7 @@ class IRCClient(object):
                 else:
                     command = line
                     params = ''
-                logging.debug('from %s: %s' % (self.client_ident(),
+                logging.info('from %s: %s' % (self.client_ident(),
                     ' '.join([command.upper(), params])))
                 # The following checks if a command is in Scripts.commands
                 # and calls its __call__ method, allowing scripts to replace
@@ -815,7 +816,7 @@ class IRCClient(object):
                 logging.error(err)
 
             if response:
-                logging.debug('to %s: %s' % (self.client_ident(), response))
+                logging.info('to %s: %s' % (self.client_ident(), response))
                 self.request.send(response.encode("utf-8") + '\r\n'.encode("utf-8"))
 
 #        self.request.close()
@@ -3331,7 +3332,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
        else:
            log = logging.basicConfig(
                level=logging.DEBUG,
-               format='[%(levelname)s] %(message)s')
+               format='%(asctime)s [%(levelname)s] %(message)s')
 
     # Handle start/stop/restart commands.
     if options.stop or options.restart:
