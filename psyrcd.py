@@ -631,7 +631,7 @@ class IRCClient(object):
         self.connected_at       = str(time.time())[:10] 
         self.server             = server
         self.request            = sock
-        self.last_activity      = 0                    # Subtract from time.time() to determine idle time
+        self.last_activity      = time.time()          # Subtract from time.time() to determine idle time
         self.user               = None                 # The part before the @
         self.realname           = None                 # Clients' real name
         self.nick               = None                 # Clients' currently registered nickname
