@@ -902,7 +902,8 @@ class IRCClient(object):
         Handle sending a private message to a user or channel.
         """
         self.last_activity = str(time.time())[:10] 
-        if not ' ' in params:
+        if not ' ' in params or not self.nick or \
+            not self.user or not self.realname:
             raise IRCError(ERR_NEEDMOREPARAMS, ':PRIVMSG Not enough parameters')
         
         target, msg = params.split(' ', 1)
