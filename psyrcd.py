@@ -750,8 +750,8 @@ class IRCClient(object):
         
         buf = buf.decode('utf-8')
 
-        while buf.find(u"\r\n") != -1:
-            line, buf = buf.split("\r\n", 1)
+        while buf.find(u"\n") != -1:
+            line, buf = buf.split("\n", 1)
             line = line.rstrip()
 
             handler = response = ''
