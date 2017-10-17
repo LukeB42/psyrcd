@@ -330,6 +330,11 @@ class IRCOperator(object):
             (SRV_DOMAIN, self.client.nick, user.nick)
         self.client.broadcast(self.client.nick, response)
 
+    def handle_plugins(self, params):
+        if not 'A' in self.client.modes:
+            return ": IRC Administrators only."
+        return ": Unimplemented."
+
     def handle_scripts(self, params):
         """
         List, Load and Unload serverside scripts.
@@ -2418,6 +2423,10 @@ class IRCClient(object):
         if not self.nick in self.server.clients:
             return
 
+        for mode in self.modes:
+            if hasattr(self.modes[mode], "__exit__"):
+                self.modes[mode].__exit__()
+
 #        self.request.send(response)
         peers = []
         for channel in self.channels.values():
@@ -2434,6 +2443,14 @@ class IRCClient(object):
                 self.server.channels.pop(channel.name)
             else:
                 for p in channel.clients: peers.append(p)
+
+        # `IRCClient.broadcast` garbage collects stoned clients by invoking
+        # this method. We don't write to ourselves via `IRCClient.broadcast`
+        # here because we hit max recursion depth for having already invoked
+        # `self.request.close`.
+        if self in peers:
+            self.request.send(response)
+            peers.remove(self)
         
         peers = set(peers)
         for peer in peers:
