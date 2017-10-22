@@ -667,10 +667,12 @@ class IRCClient(object):
             'Z':"SSL connection."
         }
 
-        # Keeps the hostmask unique which keeps bans functioning:
+        # Keep the hostmask unique to keeps bans functioning
+        self.request.send(bytes(str(':%s NOTICE * :*** Preparing your hostmask... ***\r\n' %\
+            SRV_DOMAIN).encode("utf-8")))
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
-        
+
         # Add this connection to the set of all known connections
         self.server.connections.add(self)
         
@@ -993,10 +995,9 @@ class IRCClient(object):
         else:
             # Message to user
             client = self.server.clients.get(target, None)
-            if client:
-                self.broadcast(client.nick,message)
-            else:
+            if not client:
                 raise IRCError(ERR_NOSUCHNICK, '%s' % target)
+            self.broadcast(client.nick, message)
 
     @links
     @scripts
@@ -1025,7 +1026,7 @@ class IRCClient(object):
             self.broadcast(self.nick, ':%s %s %s :Your host is %s, running version %s' % \
                 (self.server.servername, RPL_YOURHOST, self.nick, self.server.config.server.domain, SRV_VERSION))
             self.broadcast(self.nick, ':%s %s %s :This server was created %s' % \
-                (self.server.servername, RPL_CREATED, self.nick,SRV_CREATED))
+                (self.server.servername, RPL_CREATED, self.nick, SRV_CREATED))
             # opers, channels, clients and MOTD
             self.handle_lusers(None)
             self.handle_motd(None)
