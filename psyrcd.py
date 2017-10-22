@@ -670,6 +670,10 @@ class IRCClient(object):
         # Keeps the hostmask unique which keeps bans functioning:
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
+        
+        # Add this connection to the set of all known connections
+        self.server.connections.add(self)
+        
         logging.info('Client connected: %s' % self.host[0])
 
         # TODO: Recognise other SSL handshakes.
@@ -707,7 +711,7 @@ class IRCClient(object):
                 self.request.send(': This host is K:Lined. Reason: %s\n'.encode('utf-8') % attributes[2])
                 self.request.close()
                 logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
-       
+
         if not 'Z' in self.modes:
             asyncio.Task(self.asyncio_reader())
         else:
@@ -721,7 +725,7 @@ class IRCClient(object):
         """
         try:
             yield from self._handle()
-        except IOError as err:
+        except Exception as err:
             pass
         finally:
             self.finish()
@@ -910,7 +914,10 @@ class IRCClient(object):
         if not ' ' in params or not self.nick or \
             not self.user or not self.realname:
             raise IRCError(ERR_NEEDMOREPARAMS, ':PRIVMSG Not enough parameters')
-        
+
+        if not self.nick or not self.user or not self.realname:
+            raise IRCError(ERR_ERRONEUSNICKNAME, ":")
+
         target, msg = params.split(' ', 1)
         message = ':%s PRIVMSG %s %s' % (self.client_ident(), target, msg)
         
@@ -939,8 +946,10 @@ class IRCClient(object):
         else:
             # Message to user
             client = self.server.clients.get(target, None)
-            if client: self.broadcast(client.nick,message)
-            else: raise IRCError(ERR_NOSUCHNICK, '%s' % target)
+            if client:
+                self.broadcast(client.nick, message)
+            else:
+                raise IRCError(ERR_NOSUCHNICK, '%s' % target)
 
     @links
     @scripts
@@ -996,7 +1005,8 @@ class IRCClient(object):
         self.last_activity = str(time.time())[:10] 
         nick = params
         # Valid nickname?
-        if re.search('[^a-zA-Z0-9\-\[\]\'`^{}_]', nick) or len(nick) > MAX_NICKLEN:
+        if re.search('[^a-zA-Z0-9\-\[\]\'`^{}_]', nick) or \
+                len(nick) > MAX_NICKLEN or len(nick) == 0:
             raise IRCError(ERR_ERRONEUSNICKNAME, ':%s' % (nick))
 
         # Doesn't overlap with anyone else already here?
@@ -2414,18 +2424,29 @@ class IRCClient(object):
         client doesn't linger around in any channel or the client list, in case
         the client didn't properly close the connection with PART and QUIT.
         """
-        if not self.nick:
-            return
-        
+
         if not response:
             response = ':%s QUIT :Connection reset by peer' % (self.client_ident(True))
-        
-        if not self.nick in self.server.clients:
-            return
 
+        # NOTE: Scripts and plugins are expected to be able to handle clients
+        # disconnecting without having set a nickname, realname or user string.
         for mode in self.modes:
             if hasattr(self.modes[mode], "__exit__"):
                 self.modes[mode].__exit__()
+
+        for connection in self.server.connections.copy():
+            if connection == self:
+                self.server.connections.remove(connection)
+
+        if not self.nick in self.server.clients:
+            self.request.send(response)
+            self.request.close()
+            return
+
+        if not self.nick:
+            self.request.send(response)
+            self.request.close()
+            return
 
 #        self.request.send(response)
         peers = []
@@ -2442,7 +2463,8 @@ class IRCClient(object):
             if len(channel.clients) < 1 and channel.name in self.server.channels:
                 self.server.channels.pop(channel.name)
             else:
-                for p in channel.clients: peers.append(p)
+                for p in channel.clients:
+                    peers.append(p)
 
         # `IRCClient.broadcast` garbage collects stoned clients by invoking
         # this method. We don't write to ourselves via `IRCClient.broadcast`
@@ -2470,6 +2492,12 @@ class IRCClient(object):
         
         self.request.close()
 
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return id(self) == id(other)
+
     def __repr__(self):
         """
         Return a user-readable description of the client
@@ -2493,6 +2521,7 @@ class IRCServer(object):
         self.config         = config        # Many handler methods in `IRCClient` rely on config values.
         self.channels       = {}            # Existing channels (IRCChannel instances) by channel name.
         self.clients        = {}            # Connected clients (IRCClient instances) by nickname.
+        self.connections    = set()
         self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname.
         self.scripts        = Scripts(self) # The scripts object we attach external execution routines to.
         self.plugins        = Plugins(
@@ -2568,17 +2597,23 @@ class IRCServer(object):
     def repl(self, repl_locals={}, sysexit=0):
         """
         Spawn a debugging REPL.
-        Requires Ptpython. Doesn't work if you'ved piped in an oper password.
+
+        Requires `ptpython`. Won't work if you'ved piped in an oper password.
+        
         """
         try:
             from ptpython.repl import embed
         except ImportError:
             sys.stderr.write("Error: The --repl flag requires the ptpython library.\n")
             sys.stderr.write("This can be installed on most systems with \"sudo pip3 install ptpython\".")
-            sys.exit(1)
+            if sysexit:
+                sys.exit(1)
+
         if not sys.stdin.isatty():
             print("Error: stdin isn't a tty.")
-            sys.exit(1)
+            if sysexit:
+                sys.exit(1)
+
         def configure_repl(repl):
             repl.prompt_style                   = "ipython"
             repl.vi_mode                        = True
@@ -2588,6 +2623,7 @@ class IRCServer(object):
             repl.show_sidebar_help              = False
             repl.highlight_matching_parenthesis = True
             repl.use_code_colorscheme("igor")
+
         embed(locals=repl_locals, configure=configure_repl)
         if sysexit:
             sys.exit(0)
@@ -3042,10 +3078,26 @@ def ping_routine(EventLoop):
     This routine is to remove connections that are either unresponsive or
     not playing this game.
     """
-    for client in EventLoop.server.clients.copy().values():
-        then = int(client.last_activity)
+    for connection in EventLoop.server.connections.copy():
         now = int(str(time.time())[:10])
-        if (now - then) > MAX_IDLE:
+        # Handle iterating through the set of all connected clients paying
+        # attention only to connections who haven't set a nickname and have
+        # been connected for longer than `MAX_IDLE` seconds
+        if not connection.nick:
+            then = int(connection.connected_at)
+            if (now - then) >= MAX_IDLE:
+                # Invoking `connection.finish` ought to handle removing this
+                # connection from the servers' set of all connections.
+                logger.info("Disconnecting idle unidentified connection %s. Connected %i seconds" % \
+                        (connection.host[0], now - then))
+                connection.finish(response = \
+                ":%s QUIT: Ping timeout (unidentified client). Idle %i seconds."\
+                % (connection.client_ident(True), now - then))
+
+    for client in EventLoop.server.clients.copy().values():
+        now = int(str(time.time())[:10])
+        then = int(client.last_activity)
+        if (now - then) >= MAX_IDLE:
             client.finish(response = ':%s QUIT :Ping timeout. Idle %i seconds.' % \
                 (client.client_ident(True), now - then))
 
@@ -3142,7 +3194,7 @@ def apply_config(config):
     #
     return ScriptContext(**config)
 
-def sha1sum(data): return(hashlib.sha1(data.encode('utf-8')).hexdigest())
+sha1sum = lambda x: hashlib.sha1(x.encode('utf-8')).hexdigest()
 
 class tabulate(object):
     "Print a list of dictionaries as a table"
