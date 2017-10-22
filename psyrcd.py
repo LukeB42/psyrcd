@@ -74,11 +74,11 @@ SRV_WELCOME     = "Welcome to %s" % NET_NAME
 SRV_CREATED     = time.asctime()
 
 MAX_CLIENTS    = 8192 # User connections to be permitted before we start denying new connections.
-MAX_IDLE       = 300  # Time in seconds a user may be caught being idle for.
+MAX_IDLE       = 120  # Time in seconds a user may be caught being idle for.
 MAX_NICKLEN    = 12   # Characters per available nickname.
 MAX_CHANNELS   = 200  # Channels per server on the network.
 MAX_TOPICLEN   = 512  # Characters per channel topic.
-PING_FREQUENCY = 120  # Time in seconds between PING messages to clients.
+PING_FREQUENCY = 60   # Time in seconds between PING messages to clients.
 
 OPER_USERNAME = os.environ.get('USER', None)
 OPER_PASSWORD = True    # Set to True to generate a random password, False to
@@ -647,7 +647,7 @@ class IRCClient(object):
         self.remote             = False                # User is known to us through a server link
         self.host               = host                 # Client's hostname / ip.
         self.rhost              = lookup(self.host[0]) # This users rdns. May return None.
-        self.modes              = {'x':1}              # Usermodes set on the client
+        self.modes              = {'x': 1}             # Usermodes set on the client
         self.supported_modes    = {                    # Uppercase modes are oper-only
             'A':"IRC Administrator.",
 #           'b':"Bot.",
@@ -674,7 +674,9 @@ class IRCClient(object):
         # Add this connection to the set of all known connections
         self.server.connections.add(self)
         
-        logging.info('Client connected: %s' % self.host[0])
+        logging.info('Client connected from %s.' % self.host[0])
+        self.broadcast('umode:W',':%s NOTICE *: Client connected from %s.' % \
+        (self.server.config.server.domain, self.host[0]))
 
         # TODO: Recognise other SSL handshakes.
         try:
@@ -1033,8 +1035,8 @@ class IRCClient(object):
             if self.modes:
                 self.broadcast(self.nick, ':%s MODE %s +%s' % \
                     (self.client_ident(True), self.nick, ''.join(self.modes.keys())))
-            self.broadcast('umode:W',':%s NOTICE *: Client %s connected.' % \
-            (self.server.config.server.domain, self.client_ident()))
+            self.broadcast('umode:W',':%s NOTICE *: Client from %s is now %s' % \
+            (self.server.config.server.domain, self.host[0], self.client_ident()))
         else:
             # User isn't quite changing nick
             if self.server.clients.get(nick, None) == self:
@@ -1089,6 +1091,9 @@ class IRCClient(object):
                             self.broadcast(client.nick,message)
                 # Send a notification of the nick change to the client itself
                 self.broadcast(self.nick,message)
+
+                self.broadcast('umode:W',':%s NOTICE *: %s is now known as %s.' % \
+                (self.server.config.server.domain, prev_nick, nick))
 
     @links
     @scripts
@@ -1217,6 +1222,10 @@ class IRCClient(object):
         with a # and consist of a-z, A-Z, 0-9 and/or '_'.
         """
         self.last_activity = str(time.time())[:10] 
+
+        if not self.nick:
+            raise IRCError(ERR_ERRONEUSNICKNAME, ":")
+
         new_channel = None 
         channel_names = params.split(' ', 1)[0] # Ignore keys
         for channel_name in channel_names.split(','):
@@ -2428,6 +2437,13 @@ class IRCClient(object):
         if not response:
             response = ':%s QUIT :Connection reset by peer' % (self.client_ident(True))
 
+        self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % \
+            (self.server.config.server.domain, self.client_ident()))
+        logging.info('Client disconnected: %s' % (self.client_ident()))
+        
+        if len(self.server.clients) == 0:
+            logging.info('There goes the last client.')
+
         # NOTE: Scripts and plugins are expected to be able to handle clients
         # disconnecting without having set a nickname, realname or user string.
         for mode in self.modes:
@@ -2439,12 +2455,12 @@ class IRCClient(object):
                 self.server.connections.remove(connection)
 
         if not self.nick in self.server.clients:
-            self.request.send(response)
+            # Can't send `response` via `self.request.send` here: EBADF
             self.request.close()
             return
 
         if not self.nick:
-            self.request.send(response)
+            # Can't send `response` via `self.request.send` here: EBADF
             self.request.close()
             return
 
@@ -2482,13 +2498,6 @@ class IRCClient(object):
             self.server.clients.pop(self.nick)
         except KeyError:
             return
-        
-        self.broadcast('umode:W', ':%s NOTICE *: Client %s disconnected.' % \
-            (self.server.config.server.domain, self.client_ident()))
-        logging.info('Client disconnected: %s' % (self.client_ident()))
-        
-        if len(self.server.clients) == 0:
-            logging.info('There goes the last client.')
         
         self.request.close()
 
@@ -3088,7 +3097,7 @@ def ping_routine(EventLoop):
             if (now - then) >= MAX_IDLE:
                 # Invoking `connection.finish` ought to handle removing this
                 # connection from the servers' set of all connections.
-                logger.info("Disconnecting idle unidentified connection %s. Connected %i seconds" % \
+                logging.info("Disconnecting unidentified client from %s. Connected %i seconds." % \
                         (connection.host[0], now - then))
                 connection.finish(response = \
                 ":%s QUIT: Ping timeout (unidentified client). Idle %i seconds."\
