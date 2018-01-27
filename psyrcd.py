@@ -668,8 +668,6 @@ class IRCClient(object):
         }
 
         # Keep the hostmask unique to keeps bans functioning
-        self.request.send(bytes(str(':%s NOTICE * :*** Preparing your hostmask... ***\r\n' %\
-            SRV_DOMAIN).encode("utf-8")))
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
 
