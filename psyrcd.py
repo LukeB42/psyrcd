@@ -667,6 +667,8 @@ class IRCClient(object):
             'Z':"SSL connection."
         }
 
+        self.request.setblocking(False)
+
         # Keep the hostmask unique to keeps bans functioning
         host = self.host[0].encode('utf-8')
         self.hostmask = hashlib.new('sha512', host).hexdigest()[:len(host)]
@@ -2585,7 +2587,7 @@ class IRCServer(object):
                 rport = 6667
             
             coro   = self.loop.create_connection(lambda: link, rhost, rport)
-            future = asyncio.async(coro)
+            future = asyncio.create_task(coro)
             
             self.links[":".join((rhost, rport))] = (coro, future, link)
             future.add_done_callback(link.finish)
