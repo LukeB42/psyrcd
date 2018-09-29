@@ -863,11 +863,20 @@ class IRCClient(object):
         elif target.startswith('umode:'):
             umodes = target.split(':')[1]
             for client in self.server.clients.values():
-                if umodes in client.modes: client.request.send(message)
+                if umodes in client.modes:
+                    try:
+                        client.request.send(message)
+                    except BrokenPipeError:
+                        logging.error("Couldnt send to %s. Broken pipe." % \
+                            self.client_ident())
                 else:
                     for mode in umodes:
                         if mode in client.modes:
-                            client.request.send(message)
+                            try:
+                                client.request.send(message)
+                            except BrokenPipeError:
+                                logging.error("Couldnt send to %s. Broken pipe." % \
+                                    self.client_ident())
                             break
         
         elif target.startswith('cmode:'):
@@ -875,15 +884,22 @@ class IRCClient(object):
             for channel in self.server.channels.values():
                 if cmodes in channel.modes:
                     for client in channel.clients:
-                        client.request.send(message)
+                        try:
+                            client.request.send(message)
+                        except BrokenPipeError:
+                            logging.error("Couldnt send to %s. Broken pipe." % \
+                                self.client_ident())
                     break
                 else:
                     for mode in cmodes:
                         if mode in channel.modes:
                             for client in channel.clients:
-                                client.request.send(message)
+                                try:
+                                    client.request.send(message)
+                                except BrokenPipeError:
+                                    logging.error("Couldnt send to %s. Broken pipe." % \
+                                        self.client_ident())
                             break
-        
         else:
             client = self.server.clients.get(target)
             if client:
