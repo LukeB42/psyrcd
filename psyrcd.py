@@ -667,6 +667,8 @@ class IRCClient(object):
             'Z':"SSL connection."
         }
 
+        self.task = None
+
         self.request.setblocking(False)
 
         # Keep the hostmask unique to keeps bans functioning
@@ -717,7 +719,7 @@ class IRCClient(object):
                 logging.info('Connection refused to %s: K:Lined. (%s)' % (self.client_ident(), attributes[2]))
 
         if not 'Z' in self.modes:
-            asyncio.Task(self.asyncio_reader())
+            self.task = asyncio.Task(self.asyncio_reader())
         else:
             future = ThreadPool.submit(self.thread_reader)
             asyncio.wait(future, return_when=asyncio.ALL_COMPLETED)
@@ -730,7 +732,8 @@ class IRCClient(object):
         try:
             yield from self._handle()
         except Exception as err:
-            pass
+            logging.error("Error reading from socket for %s: %s" % \
+                (self.host[0], str(err)))
         finally:
             self.finish()
 
@@ -2517,6 +2520,9 @@ class IRCClient(object):
             return
         
         self.request.close()
+
+        if self.task:
+            self.task.cancel()
 
     def __hash__(self):
         return id(self)
