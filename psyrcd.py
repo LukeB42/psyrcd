@@ -65,6 +65,9 @@ except ImportError:
 import hcl
 import pluginbase
 
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+
 # These constants enable the IRCD to function without a configuration file:
 SRV_VERSION     = "psyrcd-2.0.0"
 NET_NAME        = "psyrcd-dev"
@@ -724,25 +727,25 @@ class IRCClient(object):
             future = ThreadPool.submit(self.thread_reader)
             asyncio.wait(future, return_when=asyncio.ALL_COMPLETED)
 
-    def asyncio_reader(self):
+    async def asyncio_reader(self):
         """
         Container for iterating the coroutine responsible for a plaintext
         connection.
         """
         try:
-            yield from self._handle()
+            await self._handle()
         except Exception as err:
             logging.error("Error reading from socket for %s: %s" % \
                 (self.host[0], str(err)))
         finally:
             self.finish()
 
-    def _handle(self):
+    async def _handle(self):
         """
         Lower part of asyncio_reader.
         """
         while True:
-            buf = yield from self.server.loop.sock_recv(self.request, 1024)
+            buf = await self.server.loop.sock_recv(self.request, 1024)
             self.handle(buf)
 
     def thread_reader(self):
@@ -2576,11 +2579,11 @@ class IRCServer(object):
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(server_address)
         self.sock.listen(5)
-        asyncio.Task(self._server())
+        asyncio.get_event_loop().create_task(self._server())
 
     async def _server(self):
         while True:
-            sock, host = yield self.loop.sock_accept(self.sock)
+            sock, host = await self.loop.sock_accept(self.sock)
             client = IRCClient(self, sock, host)
 
     def link_server(self, client, rhost, link_key):
