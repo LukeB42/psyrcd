@@ -2578,10 +2578,9 @@ class IRCServer(object):
         self.sock.listen(5)
         asyncio.Task(self._server())
 
-    @asyncio.coroutine
-    def _server(self):
+    async def _server(self):
         while True:
-            sock, host = yield from self.loop.sock_accept(self.sock)
+            sock, host = yield self.loop.sock_accept(self.sock)
             client = IRCClient(self, sock, host)
 
     def link_server(self, client, rhost, link_key):
