@@ -33,24 +33,6 @@
 #   - Implement /userhost
 #   - Implement all user and channel modes.
 #   - Fix TODO comments.
-# Scripting:
-#   - /operserv scripts                      Lists all loaded scripts.
-#   - /operserv scripts list                 Lists all available scripts.
-#   - /operserv scripts load scriptname      
-#
-#      Loads the specified file as a code object using a specific namespace,
-#      where a variable called 'init' is set to True.
-#
-#   - /operserv scripts unload scriptname 
-#
-#      Unloads the specified file by executing its code object with
-#      'init' set to False. This indicates that file handles in
-#      the cache must be closed and structures on affected objects
-#      ought to be removed.
-#
-#   Have a look at the doc/SCRIPTING.MD file to see some tips on creating
-#   channel modes.
-#
 # Known Errors:
 #   - Windows doesn't have fork(). Run in the foreground or Cygwin.
 
@@ -334,18 +316,13 @@ class IRCOperator(object):
         self.client.broadcast(self.client.nick, response)
 
     def handle_plugins(self, params):
-        if not 'A' in self.client.modes:
-            return ": IRC Administrators only."
-        return ": Unimplemented."
-
-    def handle_scripts(self, params):
         """
-        List, Load and Unload serverside scripts.
+        List, Load and Unload serverside plugins.
 
-        Use "/operserv scripts" to display the current state of the system.
-        Use "/operserv scripts list" to list the status of available scripts.
-        Use "/operserv scripts load filename" & "/operserv scripts unload filename"
-        for loading and unloading scripts.
+        Use "/operserv plugins" to display the current state of the system.
+        Use "/operserv plugins list" to list the status of available plugins.
+        Use "/operserv plugins load name" & "/operserv plugins unload name"
+        for loading and unloading plugins.
         """
         if not 'A' in self.client.modes:
             return ": IRC Administrators only."
@@ -354,73 +331,63 @@ class IRCOperator(object):
         else:
             cmd = params
             args = ''
-        
-        s = self.client.server.scripts
-        
-        # /operserv scripts (list what's loaded)
-        if cmd == 'scripts':
-            tmp=data=[]
-            for type, array in s.i.items():
-                for name, script in array.items():
+
+        p = self.client.server.plugins
+
+        # /operserv plugins (list what's loaded)
+        if cmd == 'plugins':
+            data = []
+            registry = {'commands': p.commands, 'umodes': p.umodes, 'cmodes': p.cmodes}
+            for ptype, mapping in registry.items():
+                for name, plugin in mapping.items():
                     tmp = {}
-                    if type == 'commands':
-                        tmp['Name'] = '/'+name
-                    if type == 'umodes':
-                        tmp['Name'] = 'umode:'+name
-                    if type == 'cmodes':
-                        tmp['Name'] = 'cmode:'+name
-                    tmp['Descripton'] = script[1]
-                    tmp['File'] = script[0].file.split(os.path.sep)[-1]
-                    
+                    if ptype == 'commands':
+                        tmp['Name'] = '/' + name
+                    elif ptype == 'umodes':
+                        tmp['Name'] = 'umode:' + name
+                    elif ptype == 'cmodes':
+                        tmp['Name'] = 'cmode:' + name
+                    tmp['Description'] = plugin['description']
+                    tmp['File'] = plugin['module'].__file__.split(os.path.sep)[-1]
                     if not options.debug:
-                        f    = open(script[0].file,'r')
-                        hash = sha1sum(f.read())
-                        f.close()
-                        # Add an asterisk next to the filename if modified.
-                        if hash != script[0].hash:
+                        if plugin.get_hash() != plugin['hash']:
                             tmp['File'] = tmp['File'] + '*'
-                    tmp['Hash'] = script[0].hash
+                    tmp['Hash'] = plugin['hash']
                     data.append(tmp)
-            
+
             fmt   = format(data)
             table = tabulate(fmt, ul='-')(data)
             if not table:
-                table = "There are no scripts loaded."
+                table = "There are no plugins loaded."
             for line in table.split('\n'):
                 self.client.write(line)
-            del fmt, table, data, tmp
-        
-        # /operserv scripts list (list what's available)
+            del fmt, table, data
+
+        # /operserv plugins list (list what's available)
         elif cmd == 'list':
-            data=[]
-            if s.dir:
-                files = os.listdir(s.dir)
-                for filename in files:
-                    if os.path.isdir(s.dir+filename): continue
-                    tmp={}
-                    tmp['File'] = filename
-                    tmp['State'] = 'UNLOADED'
-                    for type, array in s.i.items():
-                        for name, script in array.items():
-                            if script[0].file.split(os.path.sep)[-1] == filename:
-                                tmp['State'] = 'LOADED'
-                                break
-                    data.append(tmp)
-                fmt   = format(data)
-                table = tabulate(fmt, ul='-')(data)
-                if not table:
-                    table = "There are no scripts in %s." % s.dir
-                for line in table.split('\n'):
-                    self.client.write(line)
-                del fmt, table, data, tmp
-            else:
-                self.client.write('A nonexistent path was defined as the scripts directory.')
-        
+            data = []
+            loaded_files = set()
+            for mapping in (p.commands, p.umodes, p.cmodes):
+                for plugin in mapping.values():
+                    loaded_files.add(plugin['module'].__file__.split(os.path.sep)[-1])
+            for name in p.list_plugins():
+                tmp = {}
+                tmp['File'] = name + '.py'
+                tmp['State'] = 'LOADED' if tmp['File'] in loaded_files else 'UNLOADED'
+                data.append(tmp)
+            fmt   = format(data)
+            table = tabulate(fmt, ul='-')(data)
+            if not table:
+                table = "There are no plugins available."
+            for line in table.split('\n'):
+                self.client.write(line)
+            del fmt, table, data
+
         elif cmd == 'load':
-            s.load(args, self.client)
-        
+            p.load(args)
+
         elif cmd == 'unload':
-            s.unload(args, self.client)
+            p.unload(args)
 
     def handle_sajoin(self, params):
         """
@@ -530,37 +497,17 @@ class ScriptContext(dict):
 def scripts(func):
     def wrapper(self, *args, **kwargs):
 
-        # Comment out the following line if you want to
-        # script the commands executed on connect.
         if not self.user: return(func(self, *args))
 
-        s = self.server.scripts
         p = self.server.plugins
 
         ctx = ScriptContext({'client': self, 'func': func})
 
         params = ctx["params"] = str(args[0]) if args else str()
-        
-        # Practically all client connection messages run through here.
+
         for mode in self.modes.copy():
-            # This lets external components know why they're being invoked.
             ctx["mode"] = mode
-            
-            # Check for matching scripts.
-            if mode in s.umodes:
-                script = s.umodes[mode][0]
-                try:
-                    script.execute(ctx)
-                    if 'cancel' in script.env:
-                        return
-                    if 'params' in script.env:
-                        args = (script['params'],)
-                except Exception as err:
-                    logging.error('%s in %s' % (err,script.file))
-                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                        (SRV_DOMAIN,self.client_ident(), err, script.file))
-            
-            # Check for matching plugins.
+
             if mode in p.umodes:
                 plugin = p.umodes[mode]
                 try:
@@ -584,32 +531,26 @@ def scripts(func):
                     params = str()
                     if args:
                         params = str(args[0])
-                    
-                    if mode in s.cmodes:
-                        script = s.cmodes[mode][0]
-                        
-                        ctx = ScriptContext({'client':  self,
-                                             'channel': channel,
-                                             'line':    params,
-                                             'mode':    mode,
-                                             'func':    func})
-                        
+
+                    if mode in p.cmodes:
+                        plugin = p.cmodes[mode]
+                        ctx = ScriptContext(client=self, channel=channel,
+                                            params=params, mode=mode, func=func)
                         try:
-                            script.execute(ctx)
-                            
-                            if 'cancel' in s.env:
-                                if isinstance(script['cancel'], (str, bytes)):
-                                    return(script['cancel'])
+                            plugin(ctx)
+                            if ctx.cancel:
+                                if isinstance(ctx["cancel"], (str, bytes)):
+                                    return ctx["cancel"]
                                 else:
-                                    return('')
-                            if 'params' in script.env:
-                                args = (script['params'],)
+                                    return ''
+                            if "params" in ctx:
+                                args = (ctx["params"],)
                         except Exception as err:
-                            logging.error('%s in %s' % (err, script.file))
+                            logging.error('%s in %s' % (err, plugin))
                             self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (SRV_DOMAIN,self.client_ident(), err, script.file))
+                                (SRV_DOMAIN, self.client_ident(), err, plugin))
         return func(self, *args)
-    
+
     wrapper.__doc__ = func.__doc__
     return(wrapper)
 
@@ -642,6 +583,7 @@ class IRCClient(object):
         self.last_activity      = time.time()          # Subtract from time.time() to determine idle time
         self.user               = None                 # The part before the @
         self.realname           = None                 # Clients' real name
+        self.cap_negotiated     = False                # Whether this client has negotiated the CAP command on connect
         self.nick               = None                 # Clients' currently registered nickname
         self.vhost              = None                 # Alternative hostmask for WHOIS requests
         self.send_queue         = []                   # Messages to send to client (strings)
@@ -782,21 +724,10 @@ class IRCClient(object):
                     params = ''
                 logging.info('from %s: %s' % (self.client_ident(),
                     ' '.join([command.upper(), params])))
-                # The following checks if a command is in Scripts.commands
-                # and calls its __call__ method, allowing scripts to replace
-                # built-in commands.
-                script = self.server.scripts.commands.get(command.lower())
+                if not self.nick and not self.cap_negotiated and command.lower() == "join":
+                    continue
                 plugin = self.server.plugins.commands.get(command.lower())
-                if script:
-                    # "handler" has to be defined or we'll assume the command
-                    # wasn't found, later.
-                    handler = script[0]
-                    try:
-                        response = handler(self, command, params)
-                    except Exception as e:
-                        logging.error(e)
-                        response = None
-                elif plugin:
+                if plugin:
                     if "read_on_exec" in plugin and plugin["read_on_exec"]:
                         self.server.plugins.load(plugin.module_name)
                         plugin = self.server.plugins.commands.get(command.lower())
@@ -1030,7 +961,7 @@ class IRCClient(object):
         self.last_activity = str(time.time())[:10] 
         nick = params
         # Valid nickname?
-        if re.search('[^a-zA-Z0-9\-\[\]\'`^{}_]', nick) or \
+        if re.search(r'[^a-zA-Z0-9\-\[\]\'`^{}_]', nick) or \
                 len(nick) > MAX_NICKLEN or len(nick) == 0:
             raise IRCError(ERR_ERRONEUSNICKNAME, ':%s' % (nick))
 
@@ -1131,15 +1062,15 @@ class IRCClient(object):
             user, mode, unused, realname = params.split(' ', 3)
             self.user = user
             self.realname = realname[1:]
-            for mode, script in self.server.scripts.umodes.items():
-                self.supported_modes[mode] = script[1]
-                script = script[0]
+            for mode, plugin in self.server.plugins.umodes.items():
+                self.supported_modes[mode] = plugin["description"]
                 try:
-                    script.execute({'client':self,'mode':mode,'new':True})
+                    ctx = ScriptContext(client=self, mode=mode, new=True)
+                    plugin(ctx)
                 except Exception as err:
-                    logging.error('%s in %s' % (err,script.file))
+                    logging.error('%s in %s' % (err, plugin))
                     self.broadcast('umode:W',':%s ERROR %s found %s in %s while connecting.' % \
-                    (self.server.config.server.domain,self.client_ident(), err, script.file))
+                    (self.server.config.server.domain, self.client_ident(), err, plugin))
             return ""
 
     @links
@@ -1193,7 +1124,14 @@ class IRCClient(object):
         """
         Acquire the list of IRCv3 capabilities from the server.
         """
-        return(":%s UNIMPLEMENTED" % self.server.servername)
+        if not params:
+            return("CAP * LS :")
+        subcmd = params[0].upper()
+        if subcmd == "LS":
+            return("CAP * LS :")
+        if subcmd == "END":
+            return("")
+        return("CAP * LS :")
 
     @links
     @scripts
@@ -1302,25 +1240,24 @@ class IRCClient(object):
                         if re.match(b.split()[0], self.client_ident(True)):
                             raise IRCError(ERR_BANNEDFROMCHAN, '%s :Cannot join channel (+b)' % channel.name)
 
-            # Add scripts to supported modes and set script modes.
             if new_channel:
                 channel.modes['o'].append(self.nick)
-                for mode, script in self.server.scripts.cmodes.items():
-                    channel.supported_modes[mode] = script[1]
-                    script = script[0]
+                for mode, plugin in self.server.plugins.cmodes.items():
+                    channel.supported_modes[mode] = plugin["description"]
                     try:
-                        script.execute({'client':self,'channel':channel,'mode':mode,'new':True})
-                        if 'cancel' in script.env:
+                        ctx = ScriptContext(client=self, channel=channel, mode=mode, new=True)
+                        plugin(ctx)
+                        if ctx.cancel:
                             if len(channel.clients) < 1:
                                 self.server.channels.pop(channel.name)
-                            if isinstance(script['cancel'], (str, bytes)):
-                                return(script['cancel'])
+                            if isinstance(ctx["cancel"], (str, bytes)):
+                                return ctx["cancel"]
                             else:
-                                return('')
+                                return ''
                     except Exception as err:
-                        logging.error('%s in %s' % (err,script.file))
+                        logging.error('%s in %s' % (err, plugin))
                         self.broadcast('umode:W',':%s ERROR %s found %s in %s while joining %s' % \
-                        (self.server.config.server.domain,self.client_ident(),err,script.file,r_channel_name))
+                        (self.server.config.server.domain, self.client_ident(), err, plugin, r_channel_name))
 
             # Add ourself to the channel and the channel to users' channel list.
             channel.clients.add(self)
@@ -1446,44 +1383,7 @@ class IRCClient(object):
                             args = args.split(',')    # /mode +script value value
                         if mode.startswith('+'):      # is the same as /mode +script:value,value
                             mode = mode[1:]
-                            if mode in self.server.scripts.cmodes and mode in channel.supported_modes:
-                                # Only IRCOPs can set uppercase modes.
-                                if mode.isupper() and not self.oper:
-                                    return()
-                                if not mode in channel.modes:
-                                    channel.modes[mode] = args
-                                
-                                elif type(channel.modes[mode]) == list and args:
-                                    channel.modes[mode].extend(args)
-                                
-                                script = self.server.scripts.cmodes[mode][0]
-                                # Send "set=True" into the scripts' namespace so it knows to adjust this channel.
-                                try:
-                                    
-                                    script.execute({'client':       self,
-                                                    'channel':      channel,
-                                                    'mode':         mode,
-                                                    'args':         args,
-                                                    'setting_mode': True})
-
-                                    if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, bytes)):
-                                            return(script['cancel'])
-                                        else:
-                                            return('')
-                                    
-                                    self.broadcast(target,":%s MODE %s %s" % \
-                                    (self.client_ident(True), target,
-                                    params.split()[1]))
-                                    return
-                                
-                                except Exception as err:
-                                    del channel.modes[mode]
-                                    logging.error('%s in %s' % (err,script.file))
-                                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                        (self.server.config.server.domain,self.client_ident(), err, script.file))
-                            else:
-                                for i in mode:
+                            for i in mode:
                                     if not i in channel.supported_modes:
                                         unknown_modes = unknown_modes + i
                                         continue
@@ -1505,59 +1405,7 @@ class IRCClient(object):
                         elif mode.startswith('-'):
                             mode = mode[1:]
                             removed_args=[]
-                            
-                            if mode in self.server.scripts.cmodes and mode in channel.modes:
-                                if mode.isupper() and not self.oper:
-                                    return
-                                
-                                if isinstance(channel.modes[mode], list) and args:
-                                    for arg in args:
-                                        if arg in channel.modes[mode]:
-                                            channel.modes[mode].remove(arg)
-                                            removed_args.append(arg)
-                                
-                                script = self.server.scripts.cmodes[mode][0]
-                                try:
-                                    script.execute({"client":           self,
-                                                    "channel":          channel,
-                                                    "mode":             mode,
-                                                    "args":             args,
-                                                    "setting_mode":     False})
-                                    if "cancel" in script.env:
-                                        if isinstance(script['cancel'], (str, bytes)):
-                                            return(script['cancel'])
-                                        else:
-                                            return('')
-                                except Exception as err:
-                                    logging.error('%s in %s' % (err, script.file))
-                                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                        (self.server.config.server.domain,self.client_ident(),err,script.file))
-                                
-                                if mode in channel.modes:
-                                    # Using "/mode -script:" clears all values.
-                                    if isinstance(args, (str, bytes)):
-                                        del channel.modes[mode]
-                                    
-                                    # Here we try to unset the mode if sending "set=False" into the
-                                    # script hasn't caused it to extricate its effects from the channel.
-                                    elif isinstance(channel.modes[mode], (int, float)):
-                                        del channel.modes[mode]
-                                    
-                                    else:
-                                        try:
-                                            if len(channel.modes[mode]) == 0:
-                                                del channel.modes[mode]
-                                        # TODO: Craft a scenario where this
-                                        #       pass is met and return output
-                                        #       to users about it.
-                                        except:
-                                            pass
-                                if removed_args:
-                                    modeline = '%s:%s' % (mode, ','.join(removed_args))
-                                else:
-                                    modeline = mode
-                            else:
-                                for i in mode:
+                            for i in mode:
                                     if i in channel.modes:
                                         if i.isupper() and not self.oper:
                                             continue
@@ -1583,34 +1431,7 @@ class IRCClient(object):
                         args=argument.split(' ')
                         if mode.startswith('+'):
                             mode = mode[1:]
-                            if mode in self.server.scripts.cmodes and mode in channel.supported_modes:
-                                if mode.isupper() and not self.oper:
-                                    return
-                                if not mode in channel.modes:
-                                    channel.modes[mode] = args
-                                elif isinstance(channel.modes[mode], list) and args:
-                                    channel.modes[mode].extend(args)
-                                
-                                script = self.server.scripts.cmodes[mode][0]
-                                try:
-                                    script.execute({'client':       self,
-                                                    'channel':      channel,
-                                                    'mode':         mode,
-                                                    'args':         args,
-                                                    'setting_mode': True})
-                                    if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, bytes)):
-                                            return(script['cancel'])
-                                        else:
-                                            return
-                                    modeline = mode
-                                except Exception as err:
-                                    del channel.modes[mode]
-                                    logging.error('%s in %s' % (err, script.file))
-                                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (self.server.config.server.domain,self.client_ident(), err, script.file))
-                            else:
-                                for i in mode:
+                            for i in mode:
                                     if not i in channel.supported_modes:
                                         unknown_modes += i
                                         continue
@@ -1660,44 +1481,7 @@ class IRCClient(object):
                                 mode = mode[1:]
                                 removed_args=[]
                             
-                            if mode in self.server.scripts.cmodes and mode in channel.modes:
-                                if mode.isupper() and not self.oper:
-                                    return
-
-                                if isinstance(channel.modes[mode], list) and args:
-                                    for arg in args:
-                                        if arg in channel.modes[mode]:
-                                            channel.modes[mode].remove(arg)
-                                            removed_args.append(arg)
-                                
-                                script = self.server.scripts.cmodes[mode][0]
-                                try:
-                                    script.execute({'client':       self,
-                                                    'channel':      channel,
-                                                    'mode':         mode,
-                                                    'args':         args,
-                                                    'setting_mode': False})
-                                    if 'cancel' in script.env:
-                                        if isinstance(script['cancel'], (str, bytes)):
-                                            return(script['cancel'])
-                                        else:
-                                            return('')
-                                except Exception as err:
-                                    logging.error('%s in %s' % (err, script.file))
-                                    self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                    (self.server.config.server.domain,self.client_ident(), err, script.file))
-                                if mode in channel.modes:
-                                    if isinstance(channel.modes[mode], (int, float)):
-                                        del channel.modes[mode]
-                                    else:
-                                        try:
-                                            if len(channel.modes[mode]) == 0:
-                                                del channel.modes[mode]
-                                        except:
-                                            pass
-                                modeline = mode
-                            else:
-                                for i in mode:
+                            for i in mode:
                                     for n in args:
                                         if i not in channel.modes:
                                             unknown_modes += n
@@ -1780,70 +1564,34 @@ class IRCClient(object):
         else: # User is requesting a list of modes
             if params.startswith('#'):
                 modes=''
-                scripts=[] 
                 channel = self.server.channels.get(params)
                 if not channel:
                     raise IRCError(ERR_NOSUCHCHANNEL, '%s :%s' % (params, params))
-                
+
                 if not self.oper and self not in channel.clients:
                     raise IRCError(ERR_NOTONCHANNEL,
                     '%s :%s You are not in that channel.' % \
                     (channel.name, channel.name))
-                
+
                 for mode in channel.modes:
                     if mode in {'v', 'h', 'o', 'a', 'q', 'e', 'b'}:
                         continue
-                    if mode in self.server.scripts.cmodes:
-                        ns = {'client': self, 'channel': channel, 'mode': mode,
-                              'display': True}
-                        script = self.server.scripts.cmodes[mode][0]
-                        try:
-                            # Using "item" to avoid race conditions.
-                            item = script.execute(ns)
-                            if 'output' in item:
-                                scripts.append('%s %s' % (mode, item['output']))
-                            else:
-                                scripts.append(mode)
-                        except Exceptiona as err:
-                            logging.error('%s in %s' % (err, script.file))
-                            self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (self.server.config.server.domain, self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
                 self.broadcast(self.nick,':%s 324 %s %s +%s' % \
                 (self.server.servername, self.nick, params, modes))
-                for item in scripts:
-                    self.broadcast(self.nick,':%s 324 %s %s +%s' % \
-                    (self.server.config.server.domain, self.nick, params, item))
             
             elif self.oper or params == self.nick:
                 modes = '+'
-                scripts = []
                 user = self.server.clients.get(params)
                 if not user:
                     raise IRCError(ERR_NOSUCHNICK, params)
-                
+
                 for mode in user.modes:
-                    if mode in self.server.scripts.umodes:
-                        ns = {'client': self, 'mode': mode, 'display': True}
-                        script = self.server.scripts.umodes[mode][0]
-                        try:
-                            item = script.execute(ns)
-                            if 'output' in item:
-                                scripts.apppend('%s %s' % (mode, item['output']))
-                            else:
-                                scripts.append(mode)
-                            scripts.append(item)
-                        except Exception as err:
-                            logging.error('%s in %s' % (err, script.file))
-                            self.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                                (self.server.config.server.domain,self.client_ident(), err, script.file))
                     if len(mode) == 1:
                         modes = modes + mode
                 self.broadcast(self.nick,':%s %s %s :%s' % \
                 (self.server.config.server.domain, RPL_UMODEIS, params, modes))
-                for item in scripts: self.broadcast(self.nick,':%s %s %s %s +%s' % \
-                    (self.server.config.server.domain, RPL_UMODEIS, params, item))
 
     @links
     @scripts
@@ -1951,7 +1699,7 @@ class IRCClient(object):
                         user.host[0])
                 self.broadcast(self.nick, response)
 
-        # Script / Plugin user modes
+        # Plugin user modes
         for mode in user.modes:
             if hasattr(user.modes[mode], "__whois__"):
                 try:
@@ -2467,7 +2215,7 @@ class IRCClient(object):
         if len(self.server.clients) == 0:
             logging.info('There goes the last client.')
 
-        # NOTE: Scripts and plugins are expected to be able to handle clients
+        # NOTE: Plugins are expected to be able to handle clients
         # disconnecting without having set a nickname, realname or user string.
         for mode in self.modes:
             if hasattr(self.modes[mode], "__exit__"):
@@ -2558,7 +2306,6 @@ class IRCServer(object):
         self.clients        = {}            # Connected clients (IRCClient instances) by nickname.
         self.connections    = set()
         self.opers          = {}            # Authenticated IRCops (IRCOperator instances) by nickname.
-        self.scripts        = Scripts(self) # The scripts object we attach external execution routines to.
         self.plugins        = Plugins(
                                         self,
                                         pluginbase.PluginBase("plugins"),
@@ -2715,76 +2462,6 @@ class IRCServerLink(asyncio.Protocol):
             ("Active" if self.link_active else "Inactive",
             SRV_DOMAIN, self.rhost, hex(id(self)))
 
-class Script(object):
-    def __init__(self, file=None, env={}):
-        self.read_on_exec = options.debug
-        self.file   = file
-        self.env    = env
-        self.script = ''
-        self.code   = None
-        self.hash   = None
-        self.cache  = {
-            'config':{'options':         options,
-                      'logging':         logging,
-                      'NET_NAME':        NET_NAME,
-                      'SRV_VERSION':     SRV_VERSION,
-                      'SRV_DOMAIN':      SRV_DOMAIN,
-                      'SRV_DESCRIPTION': SRV_DESCRIPTION,
-                      'SRV_WELCOME':     SRV_WELCOME,
-                      'MAX_NICKLEN':     MAX_NICKLEN,
-                      'MAX_CHANNELS':    MAX_CHANNELS,
-                      'MAX_TOPICLEN':    MAX_TOPICLEN,
-                      'SRV_CREATED':     SRV_CREATED,
-                      'MAX_CLIENTS':     MAX_CLIENTS,
-                      'MAX_IDLE':        MAX_IDLE
-                     }
-                  }
-
-    def execute(self,env={}):
-            if not self.code or self.read_on_exec:
-                self.compile()
-            if env:
-                self.env = env
-            self.env['cache'] = self.cache
-            exec(self.code,  self.env)
-            del self.env['__builtins__']
-            if 'cache' in self.env.keys():
-                self.cache = self.env['cache']
-            return(self.env)
-
-    def compile(self,script=''):
-            if self.file:
-                    f = open(self.file, 'r')
-                    self.script = f.read()
-                    f.close()
-            elif script: self.script=script
-            if self.script:
-                    hash = sha1sum(self.script)
-                    if self.hash != hash:
-                            self.hash = hash
-                            self.code = compile(self.script, '<string>', 'exec')
-                    self.script = ''
-
-    def __getitem__(self, key):
-            if key in self.env.keys():
-                    return self.env[key]
-            else:
-                    raise(KeyError(key))
-
-#        def __call__(self, client, command, params):
-    def __call__(self, client, command, params):
-        try:
-            self.execute({'params':params,'command':command,'client':client})
-            #self.execute(ctx)
-            if 'output' in self.env.keys():
-                return(self['output'])
-        except Exception as err:
-            logging.error('%s in %s' % (err,self.file))
-            client.broadcast('umode:W',':%s ERROR %s found %s in %s' % \
-                (SRV_DOMAIN,client.client_ident(), err, self.file))
-            client.broadcast(client.nick, ':%s NOTICE %s :%s is temporarily out of order.' % \
-                (SRV_DOMAIN, client.nick, command.upper()))
-
 class Plugin(dict):
     def __init__(self, module, **kwargs):
         self["cache"]  = {}
@@ -2931,175 +2608,6 @@ class Plugins(pluginbase.PluginSource):
 
     def __repr__(self):
         return "<Plugins at %s>" % hex(id(self))
-
-class Scripts(object):
-    def __init__(self, server=None):
-        self.server   = server
-        self.dir      = scripts_dir
-        self.server   = 0
-        self.commands = {}
-        self.cmodes   = {}
-        self.umodes   = {}
-        self.threads  = []
-        self.i        = {'commands': self.commands,
-        'cmodes': self.cmodes, 'umodes': self.umodes}
-
-    def load(self, script, client=None):
-        """
-        Executes a script with init namespace,
-        Determines if it's already loaded,
-        Places into the correct dictionary.
-        """
-        try:
-            provides, s = self.init(script, client, True)
-        except Exception as err:
-            logging.error(err)
-            return
-
-        err = None
-        for item in provides:
-            description = 'No description.'
-            d = item.split(':')
-            if len(d) > 2:
-                description=d[2]
-            if d[0] == 'command':
-                for i in d[1].split(','):
-                    if i in self.commands.keys():
-                        err = "%s appears to already be loaded." % i
-                    else:
-                        self.commands[i] = [s, description]
-                    if client:
-                        client.broadcast(client.nick,
-                        	':%s NOTICE %s :Loaded %s %s (%s)' % \
-                        	(SRV_DOMAIN, client.nick, d[0], i, description))
-                    logging.info('Loaded (script) %s %s (%s)' % (d[0], i, description))
-            
-            elif d[0] == 'cmode':
-                for i in d[1].split(','):
-                    if i in self.cmodes:
-                        err = "%s appears to already be loaded." % i
-                    else:
-                        self.cmodes[i] = [s, description]
-                        if self.server:
-                            for channel in self.server.channels.values():
-                                channel.supported_modes[i] = description
-                    if client: client.broadcast(client.nick,
-                        ':%s NOTICE %s :Loaded %s %s (%s)' % \
-                        (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded (script) %s %s (%s)' % (d[0], i, description))
-            
-            elif d[0] == 'umode':
-                for i in d[1].split(','):
-                    if i in self.umodes:
-                        err = "%s appears to already be loaded." % i
-                    else:
-                        self.umodes[i] = [s, description]
-                        if self.server:
-                            for user in self.server.clients.values():
-                                user.supported_modes[i] = description
-                    if client: client.broadcast(client.nick, ':%s NOTICE %s :Loaded %s %s (%s)' % \
-                        (SRV_DOMAIN,client.nick,d[0],i, description))
-                    logging.info('Loaded (script) %s %s (%s)' % (d[0],i, description))
-            else:
-                err = "%s doesn't provide anything I can recognize." % (self.dir+script)
-                if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % (SRV_DOMAIN,client.nick,err))
-                logging.error(err)
-
-    def unload(self, script, client=None, force=False):
-        try:
-            provides = self.init(script, client, loading=False)
-        except:
-            return
-        err = ''
-        if not provides:
-            return
-        for item in provides:
-            description = 'No description.'
-            d = item.split(':')
-            if len(d) > 2:
-                description = d[2]
-            
-            if d[0] == 'command':
-                for i in d[1].split(','):
-                    if i in self.commands:
-                        del self.commands[i]
-                        err = "Unloaded %s %s (%s)" % (d[0], i, description)
-                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
-                            (SRV_DOMAIN, client.nick, err))
-                        logging.info(err)
-            
-            elif d[0] == 'cmode':
-                for i in d[1].split(','):
-                    if i in self.cmodes:
-                        if self.server:
-                            for channel in self.server.channels.values():
-                                if i in channel.supported_modes:
-                                    del channel.supported_modes[i]
-                                if i in channel.modes:
-                                    # ns={'set':False}
-                                    if client: client.broadcast(channel.name,':%s MODE %s -%s' % \
-                                        (SRV_DOMAIN, channel.name, i))
-                                    del channel.modes[script]
-                        del self.cmodes[i]
-                        err = "Unloaded %s %s (%s)" % (d[0], i, description)
-                        if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
-                            (SRV_DOMAIN, client.nick, err))
-                        logging.info(err)
-
-            elif d[0] == 'umode':
-                for i in d[1].split(','):
-                    if i in self.umodes:
-                        if self.server:
-                            for user in self.server.clients.values():
-                                if i in user.supported_modes:
-                                    del user.supported_modes[i]
-                                if i in user.modes:
-                                    if client: client.broadcast(client.nick,':%s MODE %s -%s' % \
-                                        (SRV_DOMAIN, user.nick, i))
-                                    del user.modes[i]
-                    del self.umodes[i]
-                    err = "Unloaded %s %s (%s)" % (d[0],i,description)
-                    if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
-                        (SRV_DOMAIN, client.nick, err))
-                    logging.info(err)
-            else:
-                err = "%s doesn't provide anything I can recognize." % (self.dir+script)
-                if client: client.broadcast(client.nick,":%s NOTICE %s :%s" % \
-                    (SRV_DOMAIN, client.nick, err))
-                logging.error(err)
-
-    def init(self, script, client=None, return_script=False, loading=True):
-        if self.dir:
-            script = Script(self.dir+script)
-        else:
-            raise Exception('self.dir undefined.')
-        try:
-            script.execute({'init': loading, 'client': client, 'server': self.server})
-        except Exception as err:
-            if not client:
-                logging.error('%s in %s' % (err, script.file))
-            else:
-                client.broadcast(client.nick, ':%s NOTICE %s :%s in %s' % \
-                    (SRV_DOMAIN, client.nick, err, script.file))
-            return
-        provides = []
-        if 'provides' in script.env.keys():
-            if isinstance(script['provides'], (str, bytes)):
-                provides.append(script['provides'])
-            elif isinstance(script['provides'], list):
-                provides = script['provides']
-            else:
-                if client:
-                    client.broadcast(client.nick,
-                    ":%s NOTICE %s :Incorrect type %s used to contain 'provides' in %s" % \
-                    (SRV_DOMAIN, client.nick, type(script['provides']), script.file))
-                else:
-                    logging.error("Incorrect type %s used to contain 'provides' in %s" % \
-                    (type(s['provides']), script.file))
-                return
-            if return_script:
-                return (provides, script)
-            return provides
 
 def ping_routine(EventLoop):
     """
@@ -3334,11 +2842,11 @@ class Daemon:
 
 def re_to_irc(r, displaying=True):
     if displaying:
-        r = re.sub('\\\.','.',r)
-        r = re.sub('\.\*','*',r)
+        r = re.sub(r'\\\.','.',r)
+        r = re.sub(r'\.\*','*',r)
     else:
-        r = re.sub('\.','\\\.',r)
-        r = re.sub('\*','.*',r)
+        r = re.sub(r'\.',r'\.',r)
+        r = re.sub(r'\*','.*',r)
     return(r)
 
 # TODO: memoize
@@ -3393,13 +2901,11 @@ if __name__ == "__main__":
         default="psyrcd.conf", help="(defaults to \"psyrcd.conf\")")
     parser.add_argument("--run-as",           dest="run_as", action="store",
         default=None, help="(defaults to the invoking user)")
-    parser.add_argument("--scripts-dir",      dest="scripts_dir",action="append",
-        default=['scripts'], help="(defaults to ./scripts/)")
     parser.add_argument("--plugin-paths",     dest="plugin_paths",action="append",
         default=['plugins'], help="(defaults to ./plugins/)")
     parser.add_argument("--preload",          dest="preload",
         action="store_true", default=False,
-        help="Preload all available scripts.")
+        help="Preload all available plugins.")
     parser.add_argument("--debug",            dest="debug", action="store_true",
         default=False, help="Sets read_on_exec to True for live development.")
     parser.add_argument("-k", "--key",        dest="ssl_key",action="store",
@@ -3514,15 +3020,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     if options.logfile:
         logging.info("Logging to %s" % (logfile))
 
-    # Set variables for processing script files:
-    for scripts_dir in options.scripts_dir:
-        this_dir = os.path.abspath(os.path.curdir) + os.path.sep
-        scripts_dir = this_dir + scripts_dir + os.path.sep
-        if os.path.isdir(scripts_dir):
-            logging.info("Scripts directory: %s" % scripts_dir)
-        else:
-            scripts_dir = False
-
     # Ready a server instance.
     if uvloop != None:
         asyncio.set_event_loop(uvloop.new_event_loop())
@@ -3542,11 +3039,6 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         if options.preload:
             if options.plugin_paths:
                 ircserver.plugins.init(config)
-            
-            if scripts_dir:
-                for filename in os.listdir(scripts_dir):
-                    if os.path.isfile(scripts_dir + filename):
-                        ircserver.scripts.load(filename)
 
         ircserver.loop.call_later(PING_FREQUENCY, ping_routine, EventLoop)
         logging.info('Starting psyrcd on %s:%s' % \
@@ -3559,13 +3051,5 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     except KeyboardInterrupt:
         ircserver.loop.stop()
         ThreadPool.shutdown()
-        if options.preload and scripts_dir:
-            scripts = []
-            for x in ircserver.scripts.i.values():
-                for script in x.values():
-                    scripts.append(script[0].file)
-            scripts = set(scripts)
-            for script in scripts:
-                ircserver.scripts.unload(script[script.rfind(os.sep)+1:])
         logging.info('Bye.')
         raise SystemExit

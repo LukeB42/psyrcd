@@ -1,8 +1,15 @@
 import pprint
-if 'init' in dir():
-    provides = "command:disect:Displays information about channel and user objects."
-else:
-    if not client.oper: client.broadcast(client.nick, ': IRCops Only.')
+
+__package__ = [{"name": "disect", "type": "command",
+                "description": "Displays information about channel and user objects."}]
+
+def disect(ctx):
+    client = ctx.client
+    line_body = ctx.line.body
+    params = line_body.split(' ', 1)[1].strip() if ' ' in line_body else ''
+
+    if not client.oper:
+        client.broadcast(client.nick, ': IRCops Only.')
     else:
         if params:
             if params.startswith('#'):
@@ -39,11 +46,15 @@ else:
             import sys, resource
             rusage_denom = 1024
             if sys.platform == 'darwin':
-                # ... it seems that in OSX the output is different units ...
                 rusage_denom = rusage_denom * rusage_denom
-            mem = resource.getrusage(
-                resource.RUSAGE_SELF).ru_maxrss / rusage_denom
+            mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / rusage_denom
             client.broadcast(client.nick,
                              ": Currently consuming %iMb of memory." % int(mem))
             client.broadcast(client.nick, ':%s' % client.server.channels)
             client.broadcast(client.nick, ':%s' % client.server.clients)
+
+def __init__(ctx):
+    __package__[0]["callable"] = disect
+
+def __del__(ctx):
+    pass
