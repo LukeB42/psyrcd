@@ -1,74 +1,178 @@
+# Writing Plugins for psyrcd
 
-#Scripting
+Plugins are plain Python modules dropped into `plugins/`. The server loads them
+at startup with `--preload`, or on demand via `/operserv plugins load <name>`.
+They run inside the server process with full access to every live object on the
+network — channels, clients, modes, the event loop, all of it.
 
-## Design rationale
+## Anatomy of a plugin
 
-The ideal scripting API might rely on functions that have specific names. This hasn't been adopted yet in Psyrcd because the current design puts less pressure on memory resources.
+Every plugin needs three things:
 
-It is very likely that this style of scripting will be adopted in future as it will allow run-time metaprogramming at the expense of more __code__ objects.
+```python
+# 1. Declare what you're providing
+__package__ = [
+    {"name": "hello", "type": "command", "description": "Greets the user."},
+]
 
-## How to
-| Command       | Help              |
-| ------------- |-------------|
-| /operserv scripts                   | Lists all loaded scripts. Indicates file modifications if `--debug` isn't being used. |
-| /operserv scripts list              | Lists all available scripts.      |
-| /operserv load scriptname           | Loads the specified file as a code object using a specific namespace, where a variable called `init` is set to `True`. |
-| /operserv scripts unload scriptname | Unloads the specified file by executing its code object with `init` set to `False`. This indicates that file handles in the cache must be closed and structures on affected objects ought to be removed. |
+# 2. Your handler
+def hello(ctx):
+    return ":%s NOTICE %s :Hello, %s!" % (
+        ctx.client.server.servername,
+        ctx.client.nick,
+        ctx.client.nick,
+    )
 
-Possible namespaces look like the following:
+# 3. Lifecycle hooks
+def __init__(ctx):
+    __package__[0]["callable"] = hello   # wire up the handler
 
-`namespace = {'client':self,['channel':channel],['mode':mode/'params':params],['setting_mode':bool,'args':args/'display':True],['line':line,'func':func]}`
+def __del__(ctx):
+    pass                                 # clean up anything you allocated
+```
 
-Modes can be any number of characters long. Modes are entries in a dictionary, called channel.modes and user.mdoes. Mode arguments are stored in lists by default.
+Drop it in `plugins/` and you're done. `/hello` now works on the server.
 
-The structure on a channel or user object looks like `user.modes['scriptmode']`, where 'scriptmode' points to a list or whatever structure your script manually sets.
+## Plugin types
 
-The type used to store arguments can be overridden and the way values are appended and removed can be handled from within scripts.
+| `type`    | Triggered by                               | Example use                   |
+|-----------|--------------------------------------------|-------------------------------|
+| `command` | A client sending that IRC command          | `/nickserv`, `/disect`, `/ns` |
+| `umode`   | Any command from a user who has that mode  | Mode `R` — registered nick    |
+| `cmode`   | Any command issued inside that channel     | Mode `G` — phrase substitution|
 
-Mode parameters can be stored in Numpy arrays for example. If you have a mode called numpy, you could do something like: `/mode #channel +numpy:123,456,789,0`
+A single file can register multiple entries — NickServ registers `nickserv`,
+`ns`, umode `R`, and cmode `c` all at once.
 
-`/mode #channel -numpy:` would clear the mode completely, rather than removing individual parameters and then the mode itself.
+## The context object (`ctx`)
 
-init and unload ought to cause the script to create or remove structures on channels and clients.
+Your handler receives a `ScriptContext` dict with attribute access:
 
-Modes on load are automatically appended to the necessary supported_modes dictionary and removed on unload.
+| Attribute        | What it is                                           |
+|------------------|------------------------------------------------------|
+| `ctx.client`     | The `IRCClient` who sent the command                 |
+| `ctx.line`       | A `Line` object; `.body` is the full command string  |
+| `ctx.channel`    | The `IRCChannel` (cmode handlers only)               |
+| `ctx.mode`       | The mode letter that triggered this handler          |
+| `ctx.func`       | The built-in handler being wrapped (umode/cmode)     |
+| `ctx.cancel`     | Set to `True` to suppress the built-in handler       |
+| `ctx.params`     | Modify this to rewrite the params before the built-in runs |
 
-Mode scripts can check for the presence of a variable named `display` in their namespace in order to return custom messages in a variable named `output`.
+From `ctx.client` you can reach everything:
 
-`@scripts` decorator cycles through modes and match to `server.scripts.umodes.keys()` and `server.scripts.cmodes.keys()`.
+```python
+client  = ctx.client
+server  = client.server
+channel = server.channels.get("#general")
+user    = server.clients.get("Alice")
+```
 
-Every time a channel name is the target of a command its modes are checked against IRCServer.Scripts.cmodes.
+## Returning a response
 
-Decorator on `handle_*` will send `self,channel,func,params` into your scripts default namespace.
+Command plugins return a raw IRC protocol string, which gets sent to the client:
 
-For example: `/mode #channel +lang:en`
+```python
+def hello(ctx):
+    return ":%s NOTICE %s :Hello!" % (
+        ctx.client.server.servername,
+        ctx.client.nick,
+    )
+```
 
-`channel.modes{'l':['50'],'lang':['en'],'n':1,'t':1}`
+Return an empty string (or `None`) to send nothing.
 
+To send multiple lines, call `ctx.client.broadcast()` directly and return `""`:
 
----
+```python
+def hello(ctx):
+    for line in ["one", "two", "three"]:
+        ctx.client.broadcast(ctx.client.nick, ": %s" % line)
+    return ""
+```
 
-#The Future
-`/operserv connect server:port key`; generate key at runtime. This is not implemented yet and would result in a major version increment.
+## Intercepting commands with cmode/umode plugins
 
-Connect and negotiate as a server, hand connection off to dedicated class.
+A cmode plugin fires **instead of** (or **before**) the built-in handler for
+every command a user sends inside a mode-enabled channel. Use `ctx.func` to
+see which handler is being called, and `ctx.cancel = True` to block it:
 
-Most IRCDs keep their modules local and their behaviors are generally not mutually exclusive.
+```python
+# replace.py — rewrites PRIVMSG text in channels with mode +G
+def G(ctx):
+    if ctx.get('func') and ctx.func.__name__ == "handle_privmsg":
+        params = ctx.get('params', '')
+        # ... rewrite ctx["params"] ...
+```
 
-Determine the most elegant way of performing breadth-first search with as little stateful info as possible
+Setting `ctx["params"]` passes modified params to the built-in handler.
 
-decorate `.broadcast()` so it transmits messages across server links. Recipients parse joins/parts/quits
+## Module-level state
 
-#Known Errors
-Windows doesn't have `fork()`. Run in the foreground or Cygwin.
+Need to keep state across calls? Use module-level variables, initialised in
+`__init__`. This is the pattern used by NickServ, ChanServ, and news:
 
-#Todo
+```python
+_db = None
 
-Issue a warning and raise SystemExit if psyrcd is already running.
+def __init__(ctx):
+    global _db
+    __package__[0]["callable"] = my_handler
+    _db = open_database()
 
-Implement /userhost and /who.
+def __del__(ctx):
+    global _db
+    if _db:
+        _db.close()
+        _db = None
+```
 
-Implement all user and channel modes.
+`ctx` in `__init__` has `ctx.server` — use it to grab the server domain,
+config values, or anything else you need at load time.
 
-Fix TODO comments.
+## Live development with `--debug`
 
+Start the server with `--debug` and every command plugin is reloaded from disk
+on every single invocation:
+
+```
+python psyrcd.py --preload --debug
+```
+
+That means the edit-test loop is just:
+
+1. Edit `plugins/myplugin.py`
+2. `/myplugin` in your IRC client
+3. See the result immediately — no reload command needed
+
+`--debug` also enables asyncio's own debug mode (extra coroutine warnings) and
+promotes `logging.debug` messages to `INFO` level so they appear in the
+console.
+
+Note: the `*` modified-file marker in `/operserv plugins` is suppressed in
+debug mode because files are always fresh.
+
+## Managing plugins at runtime
+
+```
+/operserv plugins           — list loaded plugins and their hashes
+/operserv plugins list      — list all available plugins and load state
+/operserv plugins load foo  — load plugins/foo.py
+/operserv plugins unload foo
+```
+
+Files marked with `*` next to their name have changed on disk since they were
+loaded — reload them to pick up edits (or just use `--debug` during
+development).
+
+## Real examples in this repo
+
+| File              | What it does                                          |
+|-------------------|-------------------------------------------------------|
+| `foo.py`          | Minimal skeleton — start here                         |
+| `disect.py`       | IRCop command: inspect live channel/user objects      |
+| `replace.py`      | cmode `+G`: phrase substitution in PRIVMSG            |
+| `sortition.py`    | cmode `+sortition`: random op rotation on a timer     |
+| `capabilities.py` | Overrides the built-in CAP handler for IRCv3          |
+| `NickServ.py`     | Full service: command + umode + cmode, SQLite backend |
+| `ChanServ.py`     | Channel registration service                          |
+| `news.py`         | `/news` command backed by an external API client      |
