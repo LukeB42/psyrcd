@@ -51,7 +51,7 @@ import warnings
 warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 # These constants enable the IRCD to function without a configuration file:
-SRV_VERSION     = "psyrcd-2.0.0"
+SRV_VERSION     = "psyrcd-3.0.0"
 NET_NAME        = "psyrcd-dev"
 SRV_DOMAIN      = "irc.psybernetics.org"
 SRV_DESCRIPTION = "I fought the lol, and. The lol won."
@@ -389,6 +389,24 @@ class IRCOperator(object):
         elif cmd == 'unload':
             p.unload(args)
 
+    def handle_links(self, params):
+        """
+        List active server links and their remote client counts.
+        /operserv links
+        """
+        if not 'N' in self.client.modes:
+            return ": Network Administrators only."
+        links = self.client.server.links
+        if not links:
+            return ": No active links."
+        for key, val in links.items():
+            link = val[2] if isinstance(val, tuple) else val
+            status = "ACTIVE" if link.link_active else "INACTIVE"
+            domain = getattr(link, 'remote_domain', None) or key
+            count  = sum(1 for c in self.client.server.clients.values()
+                         if getattr(c, 'is_remote', False) and c.link is link)
+            self.client.write("%s  %s  [%s]  %d remote client(s)" % (key, domain, status, count))
+
     def handle_sajoin(self, params):
         """
         Permits an IRC Operator to force a client to JOIN a channel.
@@ -562,12 +580,11 @@ def disabled(func):
     return(wrapper)
 
 def links(func):
+    """No-op decorator retained for compatibility. Link forwarding is handled in broadcast()."""
     def wrapper(self, *args, **kwargs):
-        for link in self.server.links.values():
-            link[2].write(str(args))
-        return(func(self, *args))
+        return func(self, *args)
     wrapper.__doc__ = func.__doc__
-    return(wrapper)
+    return wrapper
 
 class IRCClient(object):
     """
@@ -576,6 +593,8 @@ class IRCClient(object):
     It then handles commands sent by the client by dispatching them to the
     handle_ methods.
     """
+    is_remote = False
+
     def __init__(self, server, sock, host):
         self.connected_at       = str(time.time())[:10] 
         self.server             = server
@@ -715,6 +734,12 @@ class IRCClient(object):
             line, buf = buf.split("\n", 1)
             line = line.rstrip()
 
+            # If this connection has been upgraded to a server link,
+            # route all subsequent lines through the S2S handler.
+            if getattr(self, '_link', None):
+                self._link._handle_line(line)
+                continue
+
             handler = response = ''
             try:
                 if ' ' in line:
@@ -771,79 +796,105 @@ class IRCClient(object):
 
 #        self.request.close()
 
-    @links
     def broadcast(self, target, message):
         """
         Handle message dispatch to clients.
+
+        Local clients receive messages via their socket. Remote clients (ForeignClient
+        instances) are coalesced: one write per link rather than one per remote user,
+        letting the remote server fan out to its own locals.
         """
-        # We log direct messages to clients when caught by * but channel and
-        # privmsgs benefit from the speed improvement brought by keeping
-        # confidence.
-        message = message.encode("utf-8") + '\n'.encode("utf-8")
+        message = message.encode("utf-8") + b'\n'
+
         if target == '*':
-            [client.request.send(message) for client in self.server.clients.values()]
-            [logging.debug('to %s: %s' % (client.client_ident(),
-                message.decode("utf-8").strip("\n"))) \
-                for client in self.server.clients.values()]
+            for client in self.server.clients.values():
+                if not client.is_remote:
+                    client.request.send(message)
+                    logging.debug('to %s: %s' % (client.client_ident(),
+                        message.decode("utf-8").strip("\n")))
+            for link in self.server.iter_links():
+                link.transport.write(message)
 
         elif target.startswith('#'):
             channel = self.server.channels.get(target)
             if channel:
-                [client.request.send(message) for client in channel.clients if \
-                    not 'D' in client.modes]
-        
+                links_notified = set()
+                for client in channel.clients:
+                    if client.is_remote:
+                        if client.link not in links_notified:
+                            client.link.transport.write(message)
+                            links_notified.add(client.link)
+                    elif 'D' not in client.modes:
+                        client.request.send(message)
+
         elif target.startswith('ident:'):
-            rhost = re_to_irc(target.split(':')[1],False)
-            [client.request.send(message) for client in self.server.clients.values() \
-                if re.match(rhost, c.client_ident(True))]
-        
+            rhost = re_to_irc(target.split(':')[1], False)
+            for client in self.server.clients.values():
+                if not client.is_remote and re.match(rhost, client.client_ident(True)):
+                    client.request.send(message)
+
         elif target.startswith('umode:'):
             umodes = target.split(':')[1]
+            links_notified = set()
             for client in self.server.clients.values():
-                if umodes in client.modes:
-                    try:
-                        client.request.send(message)
-                    except BrokenPipeError:
-                        logging.error("Couldnt send to %s. Broken pipe." % \
-                            self.client_ident())
+                if client.is_remote:
+                    if client.link not in links_notified and any(m in client.modes for m in umodes):
+                        client.link.transport.write(message)
+                        links_notified.add(client.link)
                 else:
-                    for mode in umodes:
-                        if mode in client.modes:
-                            try:
-                                client.request.send(message)
-                            except BrokenPipeError:
-                                logging.error("Couldnt send to %s. Broken pipe." % \
-                                    self.client_ident())
-                            break
-        
-        elif target.startswith('cmode:'):
-            cmodes = target.split(':')[1]
-            for channel in self.server.channels.values():
-                if cmodes in channel.modes:
-                    for client in channel.clients:
+                    if umodes in client.modes:
                         try:
                             client.request.send(message)
                         except BrokenPipeError:
-                            logging.error("Couldnt send to %s. Broken pipe." % \
-                                self.client_ident())
+                            logging.error("Couldn't send to %s. Broken pipe." % self.client_ident())
+                    else:
+                        for mode in umodes:
+                            if mode in client.modes:
+                                try:
+                                    client.request.send(message)
+                                except BrokenPipeError:
+                                    logging.error("Couldn't send to %s. Broken pipe." % self.client_ident())
+                                break
+
+        elif target.startswith('cmode:'):
+            cmodes = target.split(':')[1]
+            links_notified = set()
+            for channel in self.server.channels.values():
+                if cmodes in channel.modes:
+                    for client in channel.clients:
+                        if client.is_remote:
+                            if client.link not in links_notified:
+                                client.link.transport.write(message)
+                                links_notified.add(client.link)
+                        else:
+                            try:
+                                client.request.send(message)
+                            except BrokenPipeError:
+                                logging.error("Couldn't send to %s. Broken pipe." % self.client_ident())
                     break
                 else:
                     for mode in cmodes:
                         if mode in channel.modes:
                             for client in channel.clients:
-                                try:
-                                    client.request.send(message)
-                                except BrokenPipeError:
-                                    logging.error("Couldnt send to %s. Broken pipe." % \
-                                        self.client_ident())
+                                if client.is_remote:
+                                    if client.link not in links_notified:
+                                        client.link.transport.write(message)
+                                        links_notified.add(client.link)
+                                else:
+                                    try:
+                                        client.request.send(message)
+                                    except BrokenPipeError:
+                                        logging.error("Couldn't send to %s. Broken pipe." % self.client_ident())
                             break
+
         else:
             client = self.server.clients.get(target)
             if client:
                 try:
                     client.request.send(message)
                 except IOError:
-                    client.finish()
+                    if not client.is_remote:
+                        client.finish()
            
     # NOTE: Unsightly use of `SRV_DOMAIN` global in format string:
     def write(self, *params, msgprefix=":%s NOTICE " % SRV_DOMAIN):
@@ -894,10 +945,18 @@ class IRCClient(object):
                 
                 if 'r' in channel.modes:
                     message = ':%s PRIVMSG %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
-                
+
+                # Deliver to local clients in the channel.
                 for client in channel.clients:
-                    if client != self and not 'D' in client.modes:
+                    if client != self and not client.is_remote and 'D' not in client.modes:
                         self.broadcast(client.nick, message)
+                # Deliver to linked servers (one write per link, full ident as prefix).
+                s2s = (':%s PRIVMSG %s %s' % (self.client_ident(True), target, msg)).encode('utf-8') + b'\n'
+                links_notified = set()
+                for client in channel.clients:
+                    if client.is_remote and client.link not in links_notified:
+                        client.link.transport.write(s2s)
+                        links_notified.add(client.link)
             else:
                 raise IRCError(ERR_NOSUCHNICK, '%s' % target)
         else:
@@ -939,10 +998,18 @@ class IRCClient(object):
                 
                 if 'r' in channel.modes:
                     message = ':%s NOTICE %s %s' % (channel.supported_modes['r'].split()[0], target, msg)
-                
+
+                # Deliver to local clients in the channel.
                 for client in channel.clients:
-                    if client != self and not 'D' in client.modes:
+                    if client != self and not client.is_remote and 'D' not in client.modes:
                         self.broadcast(client.nick, message)
+                # Deliver to linked servers (one write per link, full ident as prefix).
+                s2s = (':%s NOTICE %s %s' % (self.client_ident(True), target, msg)).encode('utf-8') + b'\n'
+                links_notified = set()
+                for client in channel.clients:
+                    if client.is_remote and client.link not in links_notified:
+                        client.link.transport.write(s2s)
+                        links_notified.add(client.link)
             else:
                 raise IRCError(ERR_NOSUCHNICK, '%s' % target)
         else:
@@ -1049,6 +1116,11 @@ class IRCClient(object):
                 self.broadcast('umode:W',':%s NOTICE *: %s is now known as %s.' % \
                 (self.server.config.server.domain, prev_nick, nick))
 
+                # Propagate nick change to all linked servers.
+                s2s = (':%s NICK %s' % (prev_nick, nick)).encode('utf-8') + b'\n'
+                for link in self.server.iter_links():
+                    link.transport.write(s2s)
+
     @links
     @scripts
     def handle_user(self, params):
@@ -1078,45 +1150,59 @@ class IRCClient(object):
     def handle_server(self, params):
         """
         Permit a remote server to negotiate linking.
+        Upgrades this IRCClient connection to a server link on success.
         """
         if self.user or self.nick:
             self.write("Error: This command is reserved for server connections only.")
-            self.client.broadcast(
+            self.broadcast(
                 "umode:W",
                 ":%s NOTICE * :Warn: %s has tried the SERVER command. %s is not a remote server." % \
-                (self.server.config.server.domain, self.client.client_ident(), self.client.client_ident()))
+                (self.server.config.server.domain, self.client_ident(), self.client_ident()))
             return
-        
+
         if not params or len(params.split()) != 4:
-            self.client.broadcast(
+            self.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried to negotiate a server link." % \
-                (self.server.config.server.domain, self.client.client_ident()))
+                (self.server.config.server.domain, self.client_ident()))
             self.finish()
+            return
 
         version, domain, net_name, link_key = params.split()
 
-        lmajor, lminor, lrevision = SRV_VERSION.split(".")
-        lmajor = re.findall("[0-9]", lmajor)
-
-        rmajor, rminor, rrevision = version.split(".")
-        rmajor = re.findall("[0-9]", rmajor)
+        lmajor = re.findall(r"[0-9]+", SRV_VERSION.split(".")[0])
+        rmajor = re.findall(r"[0-9]+", version.split(".")[0])
 
         if rmajor < lmajor:
-            self.client.broadcast(
+            self.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried negotiating a server link from version %s." % \
-                (self.server.config.server.domain, self.client.client_ident(), version))
+                (self.server.config.server.domain, self.client_ident(), version))
             self.finish()
+            return
 
         if link_key != self.server.link_key:
-            self.client.broadcast(
+            self.broadcast(
                 "umode:W",
                 ":%s NOTICE * :%s tried negotiating a server link using an invalid link key." % \
-                (self.server.config.server.domain, self.client.client_ident()))
+                (self.server.config.server.domain, self.client_ident()))
             self.finish()
+            return
 
-        return ": ACCEPTED"
+        # Upgrade this connection to a server link.
+        link = IRCServerLink(self.server, self.host[0], link_key)
+        link.transport = _SocketTransport(self.request)
+        link.link_active  = True
+        link.authenticated = True
+        link.remote_domain = domain
+        self._link = link
+        self.server.links[domain] = (None, None, link)
+
+        logging.info("Inbound link accepted from %s (%s)." % (domain, self.host[0]))
+        link._initiator_ident = self.client_ident(True)
+
+        link.write("SERVER %s %s %s %s" % (SRV_VERSION, SRV_DOMAIN, NET_NAME, self.server.link_key))
+        link.send_burst()
    
     @links
     @scripts
@@ -1263,6 +1349,11 @@ class IRCClient(object):
             channel.clients.add(self)
             self.channels[channel.name] = channel
 
+            # Propagate to linked servers.
+            s2s = (':%s JOIN :%s' % (self.client_ident(True), r_channel_name)).encode('utf-8') + b'\n'
+            for link in self.server.iter_links():
+                link.transport.write(s2s)
+
             # Send join message to everybody in the channel, including yourself.
             response = ':%s JOIN :%s' % (self.client_ident(masking=True), r_channel_name)
             if ('I' in self.modes) or ('r' in channel.modes):
@@ -1330,7 +1421,6 @@ class IRCClient(object):
                     (self.server.servername, self.nick, channel.name, ' '.join(nicks)))
                 self.broadcast(self.nick, ':%s 366 %s %s :End of /NAMES list' % \
                     (self.server.servername, self.nick, channel.name))
-                del tmp, nicks, v, h, o, a, q
 
     @links
     @scripts
@@ -1688,12 +1778,13 @@ class IRCClient(object):
                 self.broadcast(self.nick, response)
 
         if self.oper or self.nick == user.nick:
-            if user.rhost:
+            can_see_ip = ('O' in self.modes or 'N' in self.modes or self.nick == user.nick)
+            if user.rhost and can_see_ip:
                 response = ':%s %s %s %s %s %s' % \
                     (self.server.config.server.domain, RPL_WHOISSPECIAL, self.nick, user.nick,
                     user.rhost, user.host[0])
                 self.broadcast(self.nick, response)
-            else:
+            elif can_see_ip:
                 response = ':%s %s %s %s %s' % \
                     (self.server.config.server.domain, RPL_WHOISSPECIAL, self.nick, user.nick,
                         user.host[0])
@@ -1713,10 +1804,11 @@ class IRCClient(object):
                     logging.error("Error parsing __whois__ attribute for user mode \"%s\"." % mode)
                     logging.error(str(err))
 
-        # Server info line
+        # Server info line — show the user's actual server for remote clients.
+        user_server = getattr(user, 'home_server', None) or self.server.config.server.domain
         response = ':%s %s %s %s %s :%s' % \
             (self.server.config.server.domain, RPL_WHOISSERVER, self.nick, user.nick,
-                self.server.config.server.domain, SRV_DESCRIPTION)
+                user_server, SRV_DESCRIPTION)
         self.broadcast(self.nick, response)
 
         if 'Z' in user.modes:
@@ -1851,6 +1943,10 @@ class IRCClient(object):
                 if ('r' not in channel.modes) or (len(channel.clients) == 1):
                     response = ':%s PART :%s' % (self.client_ident(True), pchannel)
                     self.broadcast(channel.name,response)
+                # Propagate to linked servers.
+                s2s = (':%s PART %s' % (self.client_ident(True), pchannel)).encode('utf-8') + b'\n'
+                for link in self.server.iter_links():
+                    link.transport.write(s2s)
                 self.channels.pop(pchannel)
                 channel.clients.remove(self)
                 if len(channel.clients) < 1:
@@ -2235,6 +2331,18 @@ class IRCClient(object):
             self.request.close()
             return
 
+# Propagate QUIT to all linked servers before we tear down channel state
+        if self.nick:
+            s2s_quit = (':%s QUIT :%s' % (
+                self.client_ident(True),
+                (response.split(':', 2)[2] if response.count(':') >= 2 else 'Connection closed')
+            )).encode('utf-8') + b'\n'
+            for link in self.server.iter_links():
+                try:
+                    link.transport.write(s2s_quit)
+                except Exception:
+                    pass
+
 #        self.request.send(response)
         peers = []
         for channel in self.channels.values():
@@ -2312,7 +2420,6 @@ class IRCServer(object):
                                         searchpath=plugin_paths,
                                         read_on_exec=read_on_exec,
                                     )
-        self.link_key       = None          # Oper-defined pass for accepting connections as server links.
         self.links          = {}            # Other servers (IRCServerLink instances) by domain or address.
         self.lines          = {             # Bans we check on client connect, against...
                                'K':{},      # A userhost, locally.
@@ -2320,10 +2427,13 @@ class IRCServer(object):
                                'Z':{},      # An IP range, locally.
                                'GZ':{}      # An IP range, network-wide.
                               }             # An example of the syntax is lines['K']['*!*@*.fr]['n!u@h', '02343240', 'Reason']
-        self.link_key       = hashlib.new('sha512', str(os.urandom(128)).encode('utf-8')).hexdigest()
-        self.sock.setblocking(0)
-        # Avert "Address already in use" on restarts 
+        configured_key      = getattr(getattr(config, 'server', None), 'link_key', None)
+        self.link_key       = configured_key if configured_key else \
+                              hashlib.new('sha512', str(os.urandom(128)).encode('utf-8')).hexdigest()
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, 'SO_REUSEPORT'):
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.sock.setblocking(0)
         self.sock.bind(server_address)
         self.sock.listen(5)
         asyncio.get_event_loop().create_task(self._server())
@@ -2335,45 +2445,83 @@ class IRCServer(object):
 
     def link_server(self, client, rhost, link_key):
         """
-        TODO ----------------------------------------------------------------
-        Initiate a connection to a remote Psyrcd instance, identify ourselves
-        as a server and synchronise state.
-        TODO ----------------------------------------------------------------
+        Initiate an outbound connection to a remote psyrcd instance.
+        On connect, IRCServerLink.connection_made() sends the SERVER handshake
+        and send_burst() introduces our local state.
         """
-        return
         if not "N" in client.modes:
             client.write("You are not a Network Administrator.")
             return
-        
+
         if rhost in self.links:
             client.write("The host %s constitutes an existing link." % rhost)
             client.write("Re-linking requires you to OPERSERV SQUIT them, first.")
+            return
 
+        if ':' in rhost:
+            connect_host, rport = rhost.split(':', 1)
         else:
-            link = IRCServerLink(self, rhost, link_key)
-            
-            if ':' in rhost:
-                rhost, rport = rhost.split(":")
-            else:
-                rport = 6667
-            
-            coro   = self.loop.create_connection(lambda: link, rhost, rport)
-            future = asyncio.create_task(coro)
-            
-            self.links[":".join((rhost, rport))] = (coro, future, link)
-            future.add_done_callback(link.finish)
+            connect_host = rhost
+            rport        = '6667'
 
-            if link.link_active:
-                client.broadcast("umode:W", ":%s NOTICE * :%s linked %s with %s." % \
-                    (SRV_DOMAIN, client.client_ident(True), SRV_DOMAIN, rhost))
- 
+        link       = IRCServerLink(self, rhost, link_key)
+        link_key_s = '%s:%s' % (connect_host, rport)
+        coro       = self.loop.create_connection(lambda: link, connect_host, int(rport))
+        future     = asyncio.create_task(coro)
+        self.links[link_key_s] = (coro, future, link)
+
+        def _on_done(f):
+            if f.exception():
+                logging.error("Failed to link %s: %s" % (rhost, f.exception()))
+                client.write("Failed to connect to %s: %s" % (rhost, f.exception()))
+                self.links.pop(link_key_s, None)
             else:
-                client.broadcast("umode:W", ":%s NOTICE * :%s tried to link %s with %s." % \
-                    (SRV_DOMAIN, client.client_ident(True), SRV_DOMAIN, rhost))
-                client.write("A link could not be established at this time.")
+                link._initiator_ident = client.client_ident(True)
+
+        future.add_done_callback(_on_done)
 
     def unlink_server(self, client, rhost, *args):
-        pass
+        """Disconnect a server link and remove all its ForeignClient proxies."""
+        key  = None
+        link = None
+        for k, v in self.links.items():
+            lnk = v[2] if isinstance(v, tuple) else v
+            if k.startswith(rhost) or getattr(lnk, 'remote_domain', None) == rhost:
+                key  = k
+                link = lnk
+                break
+        if not link:
+            if client:
+                client.write("No active link to %s." % rhost)
+            return
+        if link.transport:
+            try:
+                link.transport.write(("SQUIT %s :Disconnecting\n" % SRV_DOMAIN).encode('utf-8'))
+                link.transport.close()
+            except Exception:
+                pass
+        self._purge_link(link)
+        self.links.pop(key, None)
+        logging.info("Unlinked %s." % rhost)
+        if client:
+            client.broadcast("umode:W", ":%s NOTICE * :%s unlinked %s." % (
+                SRV_DOMAIN, client.client_ident(True), rhost))
+
+    def _purge_link(self, link):
+        """Remove all ForeignClient entries that arrived via this link."""
+        to_remove = [nick for nick, c in self.clients.items()
+                     if getattr(c, 'is_remote', False) and c.link is link]
+        for nick in to_remove:
+            client = self.clients.pop(nick)
+            for channel in list(client.channels.values()):
+                channel.clients.discard(client)
+
+    def iter_links(self):
+        """Yield active IRCServerLink instances that have an open transport."""
+        for v in self.links.values():
+            link = v[2] if isinstance(v, tuple) else v
+            if link.transport:
+                yield link
 
     def repl(self, repl_locals={}, sysexit=0):
         """
@@ -2409,53 +2557,545 @@ class IRCServer(object):
         if sysexit:
             sys.exit(0)
 
+class _SocketTransport:
+    """
+    Adapts a raw blocking/non-blocking socket to the asyncio Transport.write()
+    interface used by IRCServerLink, so inbound server connections that arrive
+    through IRCClient can be handled uniformly.
+    """
+    def __init__(self, sock):
+        self._sock = sock
+
+    def write(self, data):
+        try:
+            self._sock.send(data)
+        except Exception as err:
+            logging.error("_SocketTransport write error: %s" % err)
+
+    def close(self):
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
+class _LinkSend:
+    """
+    Drop-in for IRCClient.request that routes outbound data through an
+    IRCServerLink transport. Used by ForeignClient so broadcast() can call
+    client.request.send() without caring whether the client is local or remote.
+    """
+    def __init__(self, link):
+        self.link = link
+
+    def send(self, data):
+        if self.link.transport:
+            self.link.transport.write(data)
+
+
 class ForeignClient(IRCClient):
     """
-    Foreign clients are structurally identical to the IRCClient class with the
-    exception that they're known to us through a remote Psyrcd instance that
-    could be multiple links away. This includes emulating IRCClient.request in
-    order to route messages to the correct node in the network.
+    Proxy for a client connected to a remote server.
+
+    Placed in server.clients and channel.clients so the rest of the codebase
+    (WHO, WHOIS, NAMES, LUSERS, umode broadcasts, plugins) sees the full network
+    without any changes. The `request` attribute is a _LinkSend shim that routes
+    outbound data to the next-hop IRCServerLink.
+
+    The `link` attribute is always the *direct* link (next hop), never the
+    origin server's link, so multi-hop routing works naturally.
     """
+    is_remote = True
+
+    def __init__(self, nick, user, host, realname, link):
+        # Do not call super().__init__() — no socket to set up.
+        self.nick       = nick
+        self.user       = user
+        self.host       = (host, 0)
+        self.hostmask   = host
+        self.realname   = realname
+        self.link       = link
+        self.modes          = {}
+        self.channels       = {}
+        self.oper           = False
+        self.vhost          = None
+        self.rhost          = None
+        self.last_activity  = str(time.time())[:10]
+        self.connected_at   = str(time.time())[:10]
+        self.home_server    = link.remote_domain or link.rhost
+        self.server         = link.local_server
+        self.request        = _LinkSend(link)
+
+    def client_ident(self, full=False):
+        if full:
+            return '%s!%s@%s' % (self.nick, self.user,
+                                  self.vhost if self.vhost else self.hostmask)
+        return self.nick
+
+    def __repr__(self):
+        return '<ForeignClient %s via %s>' % (self.nick, self.link.rhost)
+
 
 class IRCServerLink(asyncio.Protocol):
     """
-    Represents a connection to a remote Psyrcd instance.
+    Represents a connection to a remote psyrcd instance.
+
+    Used for both outbound links (initiated via /operserv slink) and inbound
+    links (SERVER command received through an IRCClient connection). In the
+    inbound case the transport is a _SocketTransport wrapping the IRCClient's
+    socket, and _handle_line() is called directly from IRCClient.handle().
     """
+
     def __init__(self, local_server, rhost, link_key):
-        self.local_server = local_server
-        self.rhost        = rhost
-        self.link_key     = link_key
-        self.transport    = None
-        self.link_active  = False
+        self.local_server  = local_server
+        self.rhost         = rhost
+        self.link_key      = link_key
+        self.transport        = None
+        self.link_active      = False
+        self.authenticated    = False
+        self.remote_domain    = None
+        self._initiator_ident = None
+        self._buf             = b""
+
+    # ------------------------------------------------------------------ #
+    # asyncio.Protocol interface (outbound connections)                   #
+    # ------------------------------------------------------------------ #
 
     def connection_made(self, transport):
-        """
-        Mark the link as active and negotiate as a server.
-        """
         self.link_active = True
         self.transport   = transport
-        logging.info("Connected to %s" % self.rhost)
-        self.write("SERVER %s %s %s %s\n" % \
-            (SRV_VERSION, SRV_DOMAIN, NET_NAME, self.link_key))
+        logging.info("Connected to %s." % self.rhost)
+        self.write("SERVER %s %s %s %s" % (
+            SRV_VERSION, SRV_DOMAIN, NET_NAME, self.link_key))
 
     def data_received(self, data):
-        logging.info("<< %s: %s" % (self.rhost, data.decode("utf-8")))
+        self._buf += data
+        while b'\n' in self._buf:
+            line, self._buf = self._buf.split(b'\n', 1)
+            line = line.decode('utf-8', errors='replace').strip('\r')
+            if line:
+                self._handle_line(line)
+
+    def connection_lost(self, exc):
+        logging.info("Link to %s lost: %s" % (self.rhost, exc))
+        self.link_active = False
+        self.local_server._purge_link(self)
+
+    def finish(self, arg=None):
+        self.link_active = False
+        logging.info("Connection to %s closed." % self.rhost)
+
+    # ------------------------------------------------------------------ #
+    # S2S line parser                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _handle_line(self, line):
+        origin = ident = None
+        if line.startswith(':'):
+            prefix, _, rest = line[1:].partition(' ')
+            ident  = prefix                                  # full nick!user@host
+            origin = prefix.split('!')[0] if '!' in prefix else prefix  # nick only
+            line   = rest
+        parts   = line.split(' ', 1)
+        command = parts[0].upper()
+        params  = parts[1] if len(parts) > 1 else ''
+        handler = getattr(self, '_s2s_%s' % command.lower(), None)
+        if handler:
+            handler(origin, params, ident=ident)
+        else:
+            logging.debug('Unhandled S2S %s from %s' % (command, self.rhost))
+
+    # ------------------------------------------------------------------ #
+    # S2S command handlers                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _s2s_server(self, origin, params, **kw):
+        """Inbound SERVER handshake — the remote accepted our outbound connection."""
+        parts = params.split()
+        if len(parts) != 4:
+            self.transport.close()
+            return
+        version, domain, net_name, link_key = parts
+        if link_key != self.local_server.link_key:
+            logging.error("Invalid link key from %s." % self.rhost)
+            self.transport.close()
+            return
+        self.authenticated = True
+        self.remote_domain = domain
+        logging.info("Link with %s (%s) authenticated." % (domain, self.rhost))
+        self.send_burst()
+
+    def _s2s_burst(self, origin, params, **kw):
+        pass  # marker — future: pause local activity during burst if needed
+
+    def _s2s_endburst(self, origin, params, **kw):
+        remote = self.remote_domain or self.rhost
+        logging.info("State burst from %s complete." % remote)
+
+        user_count = sum(
+            1 for c in self.local_server.clients.values()
+            if getattr(c, 'is_remote', False) and c.link is self
+        )
+        chan_count = sum(
+            1 for ch in self.local_server.channels.values()
+            if any(getattr(c, 'is_remote', False) and c.link is self for c in ch.clients)
+        )
+
+        initiator = getattr(self, '_initiator_ident', None) or remote
+        notice = ":%s NOTICE * :%s linked %s. (%s user%s, %s channel%s.)" % (
+            SRV_DOMAIN, initiator, remote,
+            f"{user_count:,}", 's' if user_count != 1 else '',
+            f"{chan_count:,}",  's' if chan_count  != 1 else '',
+        )
+        msg = notice.encode('utf-8') + b'\n'
+        for c in self.local_server.clients.values():
+            if not getattr(c, 'is_remote', False) and 'W' in c.modes:
+                try:
+                    c.request.send(msg)
+                except Exception:
+                    pass
+
+    def _s2s_nick(self, origin, params, **kw):
+        """
+        No origin:   NICK <nick> <user> <hostmask> <vhost> <rhost> <real_ip> <connected_at> :<realname>
+        With origin: NICK <newnick>  — rename existing remote user.
+        """
+        if origin:
+            client = self.local_server.clients.get(origin)
+            if client and client.is_remote:
+                new_nick = params.strip()
+                del self.local_server.clients[origin]
+                client.nick = new_nick
+                self.local_server.clients[new_nick] = client
+        else:
+            parts = params.split(' ', 7)
+            if len(parts) < 8:
+                return
+            nick, user, hostmask, vhost, rhost, real_ip, connected_at, realname = parts
+            realname = realname.lstrip(':')
+            fc = ForeignClient(nick, user, hostmask, realname, self)
+            fc.vhost        = None if vhost in ('', '*') else vhost
+            fc.rhost        = None if rhost in ('', '*') else rhost
+            fc.host         = (real_ip, 0)
+            fc.connected_at = connected_at
+            fc.home_server  = self.remote_domain or self.rhost
+            self.local_server.clients[nick] = fc
+
+    def _s2s_sjoin(self, origin, params, **kw):
+        """SJOIN <#channel> [@~&%+]<nick>  — bulk channel membership during burst."""
+        _PREFIX_MODE = {'~': 'q', '&': 'a', '@': 'o', '%': 'h', '+': 'v'}
+        parts = params.split()
+        if len(parts) < 2:
+            return
+        channel_name, prefixed_nick = parts[0], parts[1]
+        # Strip optional status prefix
+        prefix = ''
+        if prefixed_nick and prefixed_nick[0] in _PREFIX_MODE:
+            prefix, prefixed_nick = prefixed_nick[0], prefixed_nick[1:]
+        nick = prefixed_nick
+        client = self.local_server.clients.get(nick)
+        if not client:
+            return
+        channel = self.local_server.channels.get(channel_name)
+        if not channel:
+            channel = IRCChannel(channel_name)
+            self.local_server.channels[channel_name] = channel
+        channel.clients.add(client)
+        client.channels[channel_name] = channel
+        if prefix:
+            mode = _PREFIX_MODE[prefix]
+            if mode in channel.modes and nick not in channel.modes[mode]:
+                channel.modes[mode].append(nick)
+
+    def _s2s_join(self, origin, params, **kw):
+        """Remote user joining a channel after the burst."""
+        if not origin:
+            return
+        channel_name = params.split()[0].lstrip(':') if params else ''
+        client = self.local_server.clients.get(origin)
+        if not client or not channel_name:
+            return
+        channel = self.local_server.channels.get(channel_name)
+        if not channel:
+            channel = IRCChannel(channel_name)
+            self.local_server.channels[channel_name] = channel
+        channel.clients.add(client)
+        client.channels[channel_name] = channel
+        message = (':%s JOIN :%s' % (client.client_ident(True), channel_name)).encode('utf-8') + b'\n'
+        self._fan_out(channel, message, exclude=self)
+
+    def _s2s_part(self, origin, params, **kw):
+        if not origin:
+            return
+        channel_name = params.split()[0].lstrip(':')
+        client  = self.local_server.clients.get(origin)
+        channel = self.local_server.channels.get(channel_name)
+        if not client or not channel:
+            return
+        message = (':%s PART %s' % (client.client_ident(True), channel_name)).encode('utf-8') + b'\n'
+        channel.clients.discard(client)
+        client.channels.pop(channel_name, None)
+        self._fan_out(channel, message, exclude=self)
+
+    def _s2s_quit(self, origin, params, **kw):
+        if not origin:
+            return
+        client = self.local_server.clients.pop(origin, None)
+        if not client:
+            return
+        reason  = params.lstrip(':')
+        message = (':%s QUIT :%s' % (client.client_ident(True), reason)).encode('utf-8') + b'\n'
+        notified_locals = set()
+        notified_links  = {self}
+        for channel in list(client.channels.values()):
+            channel.clients.discard(client)
+            for c in channel.clients:
+                if c.is_remote:
+                    if c.link not in notified_links:
+                        c.link.transport.write(message)
+                        notified_links.add(c.link)
+                elif c not in notified_locals:
+                    c.request.send(message)
+                    notified_locals.add(c)
+
+    def _s2s_privmsg(self, origin, params, **kw):
+        self._relay_chat('PRIVMSG', origin, params, ident=kw.get('ident'))
+
+    def _s2s_notice(self, origin, params, **kw):
+        self._relay_chat('NOTICE', origin, params, ident=kw.get('ident'))
+
+    def _s2s_topic(self, origin, params, **kw):
+        channel_name, _, text = params.partition(' :')
+        channel = self.local_server.channels.get(channel_name)
+        if channel:
+            channel.topic    = text
+            channel.topic_by = origin or '?'
+            ident = kw.get('ident') or origin or SRV_DOMAIN
+            message = (':%s TOPIC %s :%s' % (ident, channel_name, text)).encode('utf-8') + b'\n'
+            self._fan_out(channel, message, exclude=self)
+
+    def _s2s_kick(self, origin, params, **kw):
+        """Remote kick: KICK <#channel> <target> [:reason]"""
+        parts = params.split(' ', 2)
+        if len(parts) < 2:
+            return
+        channel_name, target_nick = parts[0], parts[1]
+        reason = parts[2].lstrip(':') if len(parts) > 2 else origin or 'Kicked'
+        channel = self.local_server.channels.get(channel_name)
+        target  = self.local_server.clients.get(target_nick)
+        if not channel or not target:
+            return
+        # Remove from op lists and channel membership
+        for op_list in channel.ops:
+            if target_nick in op_list:
+                op_list.remove(target_nick)
+        channel.clients.discard(target)
+        target.channels.pop(channel_name, None)
+        ident = kw.get('ident') or origin or SRV_DOMAIN
+        message = (':%s KICK %s %s :%s' % (ident, channel_name, target_nick, reason)).encode('utf-8') + b'\n'
+        self._fan_out(channel, message, exclude=self)
+        # If the kicked user is local, deliver to them directly
+        if not target.is_remote:
+            target.request.send(message)
+
+    def _s2s_mode(self, origin, params, **kw):
+        """
+        Remote MODE change.
+        Channel: MODE <#chan> +/-<modes> [args...]
+        User:    MODE <nick> +/-<modes>      (ignored for now — remote umodes are informational)
+        """
+        parts = params.split(' ', 2)
+        if not parts:
+            return
+        target = parts[0]
+        if not target.startswith('#'):
+            return  # user modes from remote — nothing to apply locally
+        if len(parts) < 2:
+            return
+        channel = self.local_server.channels.get(target)
+        if not channel:
+            return
+        modestr = parts[1]
+        args = parts[2].split() if len(parts) > 2 else []
+        arg_idx = 0
+        adding = True
+        _LIST_MODES = {'v', 'h', 'o', 'a', 'q', 'b', 'e'}
+        _ARG_MODES   = {'k'}
+        for ch in modestr:
+            if ch == '+':
+                adding = True
+            elif ch == '-':
+                adding = False
+            elif ch in _LIST_MODES:
+                if arg_idx < len(args):
+                    nick_or_mask = args[arg_idx]; arg_idx += 1
+                    lst = channel.modes.setdefault(ch, [])
+                    if adding:
+                        if nick_or_mask not in lst:
+                            lst.append(nick_or_mask)
+                    else:
+                        try: lst.remove(nick_or_mask)
+                        except ValueError: pass
+            elif ch in _ARG_MODES:
+                if adding and arg_idx < len(args):
+                    channel.modes[ch] = args[arg_idx]; arg_idx += 1
+                elif not adding:
+                    channel.modes.pop(ch, None)
+            else:
+                if adding:
+                    if ch not in channel.modes:
+                        channel.modes[ch] = 1
+                else:
+                    channel.modes.pop(ch, None)
+        ident = kw.get('ident') or origin or SRV_DOMAIN
+        message = (':%s MODE %s %s' % (ident, target, ' '.join(parts[1:]))).encode('utf-8') + b'\n'
+        self._fan_out(channel, message, exclude=self)
+
+    def _s2s_cmode(self, origin, params, **kw):
+        """
+        Burst-time channel mode introduction: CMODE <#chan> +<modes> [args...]
+        Same parsing as _s2s_mode but no fan-out (burst phase — no one to relay to yet).
+        """
+        parts = params.split(' ', 2)
+        if len(parts) < 2:
+            return
+        channel_name = parts[0]
+        channel = self.local_server.channels.get(channel_name)
+        if not channel:
+            return
+        modestr = parts[1]
+        args = parts[2].split() if len(parts) > 2 else []
+        arg_idx = 0
+        adding = True
+        _LIST_MODES = {'v', 'h', 'o', 'a', 'q', 'b', 'e'}
+        _ARG_MODES   = {'k'}
+        for ch in modestr:
+            if ch == '+':
+                adding = True
+            elif ch == '-':
+                adding = False
+            elif ch in _LIST_MODES:
+                if arg_idx < len(args):
+                    item = args[arg_idx]; arg_idx += 1
+                    lst = channel.modes.setdefault(ch, [])
+                    if adding and item not in lst:
+                        lst.append(item)
+                    elif not adding:
+                        try: lst.remove(item)
+                        except ValueError: pass
+            elif ch in _ARG_MODES:
+                if adding and arg_idx < len(args):
+                    channel.modes[ch] = args[arg_idx]; arg_idx += 1
+                elif not adding:
+                    channel.modes.pop(ch, None)
+            else:
+                if adding:
+                    if ch not in channel.modes:
+                        channel.modes[ch] = 1
+                else:
+                    channel.modes.pop(ch, None)
+
+    def _s2s_squit(self, origin, params, **kw):
+        domain = params.split()[0] if params else self.remote_domain
+        if domain:
+            self.local_server.unlink_server(None, domain)
+
+    # ------------------------------------------------------------------ #
+    # Helpers                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _relay_chat(self, msgtype, origin, params, ident=None):
+        """Route an incoming PRIVMSG or NOTICE to its target."""
+        if not origin:
+            return
+        target, _, text = params.partition(' ')
+        prefix = ident or origin   # use full nick!user@host if available
+        message = (':%s %s %s %s' % (prefix, msgtype, target, text)).encode('utf-8') + b'\n'
+        if target.startswith('#'):
+            channel = self.local_server.channels.get(target)
+            if channel:
+                self._fan_out(channel, message, exclude=self)
+        else:
+            client = self.local_server.clients.get(target)
+            if client and not client.is_remote:
+                client.request.send(message)
+
+    def _fan_out(self, channel, message, exclude=None):
+        """
+        Deliver a message to all members of a channel.
+        Local clients receive it directly; remote clients are coalesced
+        to one write per link (excluding the sender's link).
+        """
+        links_notified = {exclude} if exclude else set()
+        for client in channel.clients:
+            if client.is_remote:
+                if client.link not in links_notified:
+                    client.link.transport.write(message)
+                    links_notified.add(client.link)
+            elif 'D' not in client.modes:
+                client.request.send(message)
+
+    def send_burst(self):
+        """
+        Introduce all local clients and their channel memberships to the
+        remote server. Called after authentication is confirmed.
+        """
+        # Prefix characters for SJOIN, ordered highest→lowest privilege
+        _STATUS_PREFIX = [('q', '~'), ('a', '&'), ('o', '@'), ('h', '%'), ('v', '+')]
+
+        self.write("BURST")
+        for client in self.local_server.clients.values():
+            if not client.is_remote:
+                self.write("NICK %s %s %s %s %s %s %s :%s" % (
+                    client.nick,
+                    client.user or '?',
+                    client.hostmask,
+                    client.vhost or '*',
+                    client.rhost or '*',
+                    client.host[0],
+                    client.connected_at,
+                    client.realname or '?'))
+        for channel in self.local_server.channels.values():
+            # Determine each local client's highest-privilege prefix
+            for client in channel.clients:
+                if client.is_remote:
+                    continue
+                prefix = ''
+                for mode, char in _STATUS_PREFIX:
+                    if mode in channel.modes and client.nick in channel.modes[mode]:
+                        prefix = char
+                        break
+                self.write("SJOIN %s %s%s" % (channel.name, prefix, client.nick))
+            # Send channel modes (skip per-nick status modes handled by SJOIN)
+            _SKIP = {'v', 'h', 'o', 'a', 'q'}
+            mode_str = ''
+            mode_args = []
+            for m, val in channel.modes.items():
+                if m in _SKIP:
+                    continue
+                if isinstance(val, int) and val:
+                    mode_str += m
+                elif isinstance(val, list) and val:
+                    for item in val:
+                        mode_str += m
+                        mode_args.append(item)
+                elif isinstance(val, str) and val:
+                    mode_str += m
+                    mode_args.append(val)
+            if mode_str:
+                line = "CMODE %s +%s" % (channel.name, mode_str)
+                if mode_args:
+                    line += ' ' + ' '.join(mode_args)
+                self.write(line)
+        self.write("ENDBURST")
 
     def write(self, *params, msgprefix=""):
         if not self.transport:
             return
-
         for message in map(str, params):
             for line in message.splitlines():
                 logging.info(">> %s: %s" % (self.rhost, line))
-                self.transport.write(line.encode("utf-8"))
-
-    def connection_lost(self, exc):
-        logging.info("! %s" % str(exc))
-
-    def finish(self, arg):
-        print(arg)
-        logging.info("Connection to %s closed." % self.rhost)
+                self.transport.write((line + '\n').encode('utf-8'))
 
     def __repr__(self):
         return "<%s IRCServerLink (%s <-> %s) at %s>" % \
@@ -2533,9 +3173,13 @@ class Plugins(pluginbase.PluginSource):
         # send a ScriptContext containing a reference to the IRCServer into.
         # This permits Plugins to manage the entire lifecycle of their state.
         if callable(getattr(module, "__init__", None)):
-            module.__init__(
-                ScriptContext(config=config, server=self.server),
-            )
+            try:
+                module.__init__(
+                    ScriptContext(config=config, server=self.server),
+                )
+            except Exception as err:
+                logging.error('Error initialising plugin %s: %s' % (plugin_name, err))
+                return
 
         def _load(module, pkginfo):
             """
@@ -2637,6 +3281,8 @@ def ping_routine(EventLoop):
                 % (connection.client_ident(True), now - then))
 
     for client in EventLoop.server.clients.copy().values():
+        if getattr(client, 'is_remote', False):
+            continue
         now = int(str(time.time())[:10])
         then = int(client.last_activity)
         if (now - then) >= MAX_IDLE:
@@ -2980,7 +3626,7 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
 
     # Read and apply the configuration file.
     with open(options.config, "r") as fd:
-        config = hcl.load(fd)
+        config = hcl.loads(os.path.expandvars(fd.read()))
 
     config = apply_config(config)
 
@@ -3026,16 +3672,17 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
     
     ThreadPool = ThreadPoolExecutor(MAX_CLIENTS)
     EventLoop  = asyncio.get_event_loop()
-    ircserver  = IRCServer(
-                    EventLoop,
-                    config,
-                    (options.listen_address, int(options.listen_port)),
-                    options.plugin_paths,
-                    read_on_exec=options.debug,
-    )
 
     # Start.
     try:
+        ircserver  = IRCServer(
+                        EventLoop,
+                        config,
+                        (options.listen_address, int(options.listen_port)),
+                        options.plugin_paths,
+                        read_on_exec=options.debug,
+        )
+
         if options.preload:
             if options.plugin_paths:
                 ircserver.plugins.init(config)
@@ -3046,7 +3693,9 @@ $ %sopenssl%s req -new -x509 -nodes -sha256 -days 365 -key %skey%s > %scert%s"""
         ircserver.loop.set_debug(options.debug)
         ircserver.loop.run_forever()
     except socket.error as e:
-        logging.error(repr(e))
+        import traceback
+        logging.error('Could not bind %s:%s — %r' % (options.listen_address, options.listen_port, e))
+        traceback.print_exc()
         sys.exit(-2)
     except KeyboardInterrupt:
         ircserver.loop.stop()

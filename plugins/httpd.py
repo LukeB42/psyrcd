@@ -29,7 +29,10 @@ def __init__(ctx):
     ])
 
     AsyncIOMainLoop().install()
-    application.listen(5000)
+    try:
+        application.listen(5000)
+    except OSError as err:
+        raise RuntimeError("httpd: could not bind port 5000: %s" % err)
 
 def __del__(ctx):
     ...
