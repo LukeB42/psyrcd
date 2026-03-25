@@ -1,4 +1,4 @@
-# mud.py — +MUD channel mode plugin for psyrcd.
+# mud.py — +mud channel mode plugin for psyrcd.
 # Luke Brooks, 2026. MIT License.
 MUD_DB = 'mud.db'
 MUD_MODEL= 'ministral-3:3b'
