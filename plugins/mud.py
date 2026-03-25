@@ -8,7 +8,7 @@ MUD_MODEL= 'ministral-3:3b'
 
 Overview
 --------
-mud.py implements a +mud channel mode for psyrcd. Setting +MUD on a channel
+mud.py implements a +mud channel mode for psyrcd. Setting +mud on a channel
 transforms it into a persistent, multi-user dungeon hosted entirely within the
 IRC channel. All game I/O is delivered as PRIVMSG lines to the channel from a
 pseudo-identity derived from the channel name. No NOTICE, no CTCP, no direct
@@ -25,9 +25,9 @@ actual world name is always derived automatically as {base}_{channel}, where
 channel is the channel name without the leading #. This means:
 
   - Every channel gets its own independent world. Two channels running
-    +MUD:default are running default_foo and default_bar — entirely separate.
+    +mud:default are running default_foo and default_bar — entirely separate.
   - If a world named {base}_{channel} already exists in sqlite (from a previous
-    +MUD activation on this channel), it is resumed exactly as left.
+    +mud activation on this channel), it is resumed exactly as left.
   - If no such world exists, it is freshly seeded from the base game template.
   - The base game templates are seed definitions in the plugin, not live sqlite
     worlds. They are never directly modified by player or admin activity.
@@ -105,7 +105,7 @@ Semantic Color Palette
 
 handle_join Intercept
 ---------------------
-When a client joins a +MUD channel, handle_join is intercepted to check for an
+When a client joins a +mud channel, handle_join is intercepted to check for an
 existing player record in sqlite:
 
   Returning player — restore last safe room, calculate offline passive regen
@@ -500,7 +500,7 @@ One asyncio task per active world. Tasks are stored in a module-level dict:
 and also referenced on ctx.client.server (the IRCServer instance) as:
     server.mud_directors: dict[world_name, asyncio.Task]
     server.mud_db: sqlite3.Connection  (shared WAL-mode connection)
-When +MUD is unset (/mode -MUD), the director task for that world is
+When +mud is unset (/mode -mud), the director task for that world is
 cancelled, all active combat is suspended, player and NPC state is flushed
 to sqlite, and the world is removed from _directors. The sqlite connection
 remains open as long as any world is active; it is closed in __del__.
@@ -621,7 +621,7 @@ Worlds
 ------
 Three base game templates exist as seed definitions in the plugin code. They
 are never live sqlite worlds and are never directly modified. Each is used to
-seed a fresh {base}_{channel} world on first +MUD activation for a channel.
+seed a fresh {base}_{channel} world on first +mud activation for a channel.
 
   default   — CircleMUD / Elder Scrolls / Dark Souls / Final Fantasy aesthetic.
               Guilds: Warrior, Mage, Rogue, Cleric.
@@ -1364,7 +1364,7 @@ the attacking NPC. XP, gold, and prop distribution follows the multiplayer
 combat rules (participants only).
 
 Follow state is in-memory only (follows table). It resets on part, quit, or
-/mode -MUD. A player cannot follow someone who is already following them.
+/mode -mud. A player cannot follow someone who is already following them.
 
 Quest System
 ------------
