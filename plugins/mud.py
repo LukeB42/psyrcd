@@ -3,12 +3,12 @@
 MUD_DB = 'mud.db'
 MUD_MODEL= 'ministral-3:3b'
 """
-+MUD Channel Mode — Design Reference
++mud Channel Mode — Design Reference
 ======================================
 
 Overview
 --------
-mud.py implements a +MUD channel mode for psyrcd. Setting +MUD on a channel
+mud.py implements a +mud channel mode for psyrcd. Setting +MUD on a channel
 transforms it into a persistent, multi-user dungeon hosted entirely within the
 IRC channel. All game I/O is delivered as PRIVMSG lines to the channel from a
 pseudo-identity derived from the channel name. No NOTICE, no CTCP, no direct
@@ -16,11 +16,11 @@ PRIVMSG to client nicks — everything is contained in the channel.
 
 Activation
 ----------
-    /mode #foo +MUD             — defaults to base game Default; world: default_foo
-    /mode #foo +MUD:cyberpunk   — base game Cyberpunk;           world: cyberpunk_foo
-    /mode #foo +MUD:void        — base game Void;                world: void_foo
+    /mode #foo +mud             — defaults to base game Default; world: default_foo
+    /mode #foo +mud:cyberpunk   — base game Cyberpunk;           world: cyberpunk_foo
+    /mode #foo +mud:void        — base game Void;                world: void_foo
 
-The argument to +MUD is a base game name (default, cyberpunk, void). The
+The argument to +mud is a base game name (default, cyberpunk, void). The
 actual world name is always derived automatically as {base}_{channel}, where
 channel is the channel name without the leading #. This means:
 
@@ -32,7 +32,7 @@ channel is the channel name without the leading #. This means:
   - The base game templates are seed definitions in the plugin, not live sqlite
     worlds. They are never directly modified by player or admin activity.
 
-Omitting the argument is equivalent to +MUD:default.
+Omitting the argument is equivalent to +mud:default.
 
 Multiple channels may each run different base games simultaneously, each with
 their own independently evolving world.
@@ -1466,8 +1466,8 @@ The msg() function checks client.is_remote and routes accordingly.
 
 Plugin Package Declaration
 --------------------------
-This module registers one cmode: 'MUD'.
-The callable is invoked on every command issued in a channel where +MUD is set.
+This module registers one cmode: 'mud'.
+The callable is invoked on every command issued in a channel where +mud is set.
 __init__ starts the AI director task for any already-active MUD channels.
 __del__ cancels all director tasks and closes sqlite connections cleanly.
 """
