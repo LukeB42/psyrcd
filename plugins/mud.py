@@ -1,7 +1,7 @@
 # mud.py — +mud channel mode plugin for psyrcd.
 # Luke Brooks, 2026. MIT License.
 MUD_DB = 'mud.db'
-MUD_MODEL= 'ministral-3:3b'
+MUD_MODEL= 'ministral-3:3b' # Set to an empty string to disable.
 """
 +mud Channel Mode — Design Reference
 ======================================
