@@ -1473,49 +1473,72 @@ class IRCClient(object):
                             args = args.split(',')    # /mode +script value value
                         if mode.startswith('+'):      # is the same as /mode +script:value,value
                             mode = mode[1:]
-                            for i in mode:
-                                    if not i in channel.supported_modes:
-                                        unknown_modes = unknown_modes + i
-                                        continue
-                                    
-                                    if i.isupper() and not self.oper:
-                                        continue
-                                    
-                                    if i not in channel.modes:
-                                        channel.modes[i] = args
-                                        modeline=modeline + i
-                            if modeline:
-                                message = ":%s MODE %s +%s" % (self.client_ident(True), target, modeline)
+                            if len(mode) > 1 and mode in channel.supported_modes:
+                                # Multi-character cmode (e.g. +mud:cyberpunk)
+                                if mode not in channel.modes:
+                                    channel.modes[mode] = args
+                                message = ":%s MODE %s +%s%s" % (
+                                    self.client_ident(True), target, mode,
+                                    (' ' + ','.join(args) if args else ''))
                                 self.broadcast(target, message)
-                            
-                            if unknown_modes:
-                                self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
-                                    (self.server.config.server.domain, ERR_UNKNOWNMODE, self.nick, unknown_modes))
-                        
+                                p = self.server.plugins
+                                if mode in p.cmodes:
+                                    ctx2 = ScriptContext(client=self, channel=channel,
+                                                         params=target, mode=mode, func=self.handle_mode)
+                                    try:
+                                        p.cmodes[mode](ctx2)
+                                    except Exception as err:
+                                        logging.error('%s in %s' % (err, p.cmodes[mode]))
+                            else:
+                                for i in mode:
+                                        if not i in channel.supported_modes:
+                                            unknown_modes = unknown_modes + i
+                                            continue
+
+                                        if i.isupper() and not self.oper:
+                                            continue
+
+                                        if i not in channel.modes:
+                                            channel.modes[i] = args
+                                            modeline=modeline + i
+                                if modeline:
+                                    message = ":%s MODE %s +%s" % (self.client_ident(True), target, modeline)
+                                    self.broadcast(target, message)
+
+                                if unknown_modes:
+                                    self.broadcast(self.nick, ':%s %s %s %s :unkown mode(s)' % \
+                                        (self.server.config.server.domain, ERR_UNKNOWNMODE, self.nick, unknown_modes))
+
                         elif mode.startswith('-'):
                             mode = mode[1:]
                             removed_args=[]
-                            for i in mode:
-                                    if i in channel.modes:
-                                        if i.isupper() and not self.oper:
-                                            continue
-                                        
-                                        if i in {'v', 'h', 'o', 'a', 'q', 'e', 'b'}:
-                                            continue
-                                        
-                                        if i == 'i' or (type(channel.modes[i]) == int) or \
-                                        (len(channel.modes[i]) == 0):
-                                            del channel.modes[i]
-                                        modeline = modeline + i
-                            if mode in channel.modes:
-                                if isinstance(channel.modes[mode], list):
-                                    self.write('%s +%s contains \x02%s\x0F.' % \
-                                            (channel.name, mode, '\x0F, \x02'.join(channel.modes[mode])))
-                                self.write('Use \x02\x1F/MODE %s -%s:\x0F to clear.' % (channel.name,mode))
-                            
-                            elif modeline:
-                                message = ":%s MODE %s -%s" % (self.client_ident(True), target, modeline)
+                            if len(mode) > 1 and mode in channel.modes:
+                                # Multi-character cmode removal (e.g. -mud)
+                                del channel.modes[mode]
+                                message = ":%s MODE %s -%s" % (self.client_ident(True), target, mode)
                                 self.broadcast(target, message)
+                            else:
+                                for i in mode:
+                                        if i in channel.modes:
+                                            if i.isupper() and not self.oper:
+                                                continue
+
+                                            if i in {'v', 'h', 'o', 'a', 'q', 'e', 'b'}:
+                                                continue
+
+                                            if i == 'i' or (type(channel.modes[i]) == int) or \
+                                            (len(channel.modes[i]) == 0):
+                                                del channel.modes[i]
+                                            modeline = modeline + i
+                                if mode in channel.modes:
+                                    if isinstance(channel.modes[mode], list):
+                                        self.write('%s +%s contains \x02%s\x0F.' % \
+                                                (channel.name, mode, '\x0F, \x02'.join(channel.modes[mode])))
+                                    self.write('Use \x02\x1F/MODE %s -%s:\x0F to clear.' % (channel.name,mode))
+
+                                elif modeline:
+                                    message = ":%s MODE %s -%s" % (self.client_ident(True), target, modeline)
+                                    self.broadcast(target, message)
 
                     else: # A mode with arguments. Chan ops, bans, excepts..
                         args=argument.split(' ')
@@ -1570,48 +1593,47 @@ class IRCClient(object):
                             elif mode.startswith('-'):
                                 mode = mode[1:]
                                 removed_args=[]
-                            
-                            for i in mode:
-                                    for n in args:
-                                        if i not in channel.modes:
-                                            unknown_modes += n
-                                            continue
-                                        
-                                        if (i == 'v' or i == 'h' or i == 'o' or \
-                                        i == 'a' or i == 'q') and (i in channel.modes):
-                                            if not self.oper:
-                                                if (i == 'a' or i == 'q') and \
-                                                (not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_CHANOWNPRIVNEEDED,
-                                                    "%s You're not a channel owner." % channel.name)
-                                                
-                                                if (i == 'o') and (not self.nick \
-                                                in channel.modes['o'] and not \
-                                                self.nick in channel.modes['a'] \
-                                                and not self.nick in channel.modes['q']):
-                                                    raise IRCError(ERR_NOTFORHALFOPS,
-                                                    "Halfops cannot unset mode %s" % i)
-                                            
-                                            if n in channel.modes[i]:
-                                                channel.modes[i].remove(n)
+                                for i in mode:
+                                        for n in args:
+                                            if i not in channel.modes:
+                                                unknown_modes += n
+                                                continue
+
+                                            if (i == 'v' or i == 'h' or i == 'o' or \
+                                            i == 'a' or i == 'q') and (i in channel.modes):
+                                                if not self.oper:
+                                                    if (i == 'a' or i == 'q') and \
+                                                    (not self.nick in channel.modes['q']):
+                                                        raise IRCError(ERR_CHANOWNPRIVNEEDED,
+                                                        "%s You're not a channel owner." % channel.name)
+
+                                                    if (i == 'o') and (not self.nick \
+                                                    in channel.modes['o'] and not \
+                                                    self.nick in channel.modes['a'] \
+                                                    and not self.nick in channel.modes['q']):
+                                                        raise IRCError(ERR_NOTFORHALFOPS,
+                                                        "Halfops cannot unset mode %s" % i)
+
+                                                if n in channel.modes[i]:
+                                                    channel.modes[i].remove(n)
+                                                    modeline += i
+                                                    args.remove(n)
+
+                                            elif (i == 'b' or i == 'e') and i in channel.modes:
+                                                n = re_to_irc(n, False)
+                                                for entry in channel.modes[i]:
+                                                    if entry.split()[0] == n:
+                                                        channel.modes[i].remove(entry)
+                                                        modeline+=i
+
+                                            elif i == 'i':
+                                                del channel.modes[i]
                                                 modeline += i
-                                                args.remove(n)
-                                        
-                                        elif (i == 'b' or i == 'e') and i in channel.modes:                  
-                                            n = re_to_irc(n, False)
-                                            for entry in channel.modes[i]:
-                                                if entry.split()[0] == n:
-                                                    channel.modes[i].remove(entry)
-                                                    modeline+=i
-                                        
-                                        elif i == 'i':
-                                            del channel.modes[i]
-                                            modeline += i
-                            if modeline:
-                                message = ":%s MODE %s -%s %s" % \
-                                (self.client_ident(True), target,
-                                modeline, argument)
-                                self.broadcast(target, message)                
+                                if modeline:
+                                    message = ":%s MODE %s -%s %s" % \
+                                    (self.client_ident(True), target,
+                                    modeline, argument)
+                                    self.broadcast(target, message)                
                 else:
                     raise IRCError(ERR_CHANOPPRIVSNEEDED,
                     '%s You are not a channel operator.' % channel.name)
